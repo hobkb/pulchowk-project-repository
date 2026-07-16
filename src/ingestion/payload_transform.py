@@ -12,6 +12,21 @@ import re
 
 class DjangoIngestionTransformer:
 
+    # Page types that are extracted/classified but never indexed into the
+    # vector store -- they're structural/navigational pages, not content
+    # someone would want returned as a search result. Abstract is
+    # deliberately NOT in this set; it stays searchable.
+    EXCLUDED_PAGE_TYPES = {
+        "cover",
+        "toc",
+        "list_of_figures",
+        "list_of_tables",
+        "list_of_abbreviations",
+        "approval",
+        "acknowledgement",
+         "copyright",
+    }
+
     @staticmethod
     def extract_clean_project_title(raw_cover_text):
         """
@@ -80,7 +95,7 @@ class DjangoIngestionTransformer:
         valid_chunk_index = 0
         for chunk in chunks:
             meta = chunk["metadata"]
-            if meta.get("page_type") == "cover":
+            if meta.get("page_type") in DjangoIngestionTransformer.EXCLUDED_PAGE_TYPES:
                 continue
 
             text_content = chunk["text"]

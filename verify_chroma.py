@@ -11,9 +11,12 @@ import sys
 from src.ingestion.vector_store import StatefulVectorPipeline
 
 def main():
+    
     vp = StatefulVectorPipeline()
     collection = vp.collection
-
+    collection.count()
+    item = collection.get(limit=1, include=["embeddings", "documents"])
+    print(item)
     total = collection.count()
     print(f"Vector DB path      : {vp.db_path}")
     print(f"Collection name     : {collection.name}")
@@ -62,4 +65,5 @@ def main():
 
 
 if __name__ == "__main__":
+   
     main()
