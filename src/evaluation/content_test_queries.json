@@ -1,0 +1,296 @@
+[
+    {
+        "query": "Explain the methodology used for generating 3D mesh models",
+        "relevant": [
+            "2d_to_3d_Mesh_generator.pdf"
+        ]
+    },
+    {
+        "query": "What input data was used for the 2D to 3D mesh generation system?",
+        "relevant": [
+            "2d_to_3d_Mesh_generator.pdf"
+        ]
+    },
+    {
+        "query": "Describe the architecture of the 3D modeling booth system",
+        "relevant": [
+            "3D Modeling Booth for Small Objects.pdf"
+        ]
+    },
+    {
+        "query": "What techniques were used for scanning small objects in 3D?",
+        "relevant": [
+            "3D Modeling Booth for Small Objects.pdf"
+        ]
+    },
+    {
+        "query": "Explain the reconstruction pipeline for heritage structures",
+        "relevant": [
+            "3d_reconstruction_of_heritage_structures.pdf"
+        ]
+    },
+    {
+        "query": "What dataset was used for 3D reconstruction experiments?",
+        "relevant": [
+            "3d_reconstruction_of_heritage_structures.pdf"
+        ]
+    },
+    {
+        "query": "Explain the Gaussian splatting approach used in the system",
+        "relevant": [
+            "4D Gaussian Splatting.pdf"
+        ]
+    },
+    {
+        "query": "How was monocular video used for 4D reconstruction?",
+        "relevant": [
+            "4D Gaussian Splatting.pdf"
+        ]
+    },
+    {
+        "query": "Describe the compiler architecture implemented for RISC-V",
+        "relevant": [
+            "A COMPILER FOR A SUBSET OF THE C PROGRAMMING.pdf"
+        ]
+    },
+    {
+        "query": "What parsing techniques were used in the C compiler?",
+        "relevant": [
+            "A COMPILER FOR A SUBSET OF THE C PROGRAMMING.pdf"
+        ]
+    },
+    {
+        "query": "Explain the code generation process of the compiler",
+        "relevant": [
+            "A COMPILER FOR A SUBSET OF THE C PROGRAMMING.pdf"
+        ]
+    },
+    {
+        "query": "What intermediate representation was used in the compiler?",
+        "relevant": [
+            "A COMPILER FOR A SUBSET OF THE C PROGRAMMING.pdf"
+        ]
+    },
+    {
+        "query": "Explain the latent space approach for autonomous driving",
+        "relevant": [
+            "A Latent Space Approach To Autonomous Driving Training.pdf"
+        ]
+    },
+    {
+        "query": "How was the autonomous driving model trained?",
+        "relevant": [
+            "A Latent Space Approach To Autonomous Driving Training.pdf"
+        ]
+    },
+    {
+        "query": "What simulation environment was used for autonomous driving?",
+        "relevant": [
+            "Divyadristi Vahana.pdf"
+        ]
+    },
+    {
+        "query": "Explain the reinforcement learning approach for noise cancellation",
+        "relevant": [
+            "Adaptive Indoor Noise Cancellation.pdf"
+        ]
+    },
+    {
+        "query": "What algorithms were compared for adaptive noise cancellation?",
+        "relevant": [
+            "Adaptive Indoor Noise Cancellation.pdf"
+        ]
+    },
+    {
+        "query": "Describe the architecture of the indoor noise cancellation system",
+        "relevant": [
+            "Adaptive Indoor Noise Cancellation.pdf"
+        ]
+    },
+    {
+        "query": "Explain the SDN based end host monitoring system",
+        "relevant": [
+            "Agent_based_End_Host_Monitoring_in_Security_Critical_SDN_Enabled_IPv6_Intranet.pdf"
+        ]
+    },
+    {
+        "query": "What security mechanisms were used for IPv6 monitoring?",
+        "relevant": [
+            "Agent_based_End_Host_Monitoring_in_Security_Critical_SDN_Enabled_IPv6_Intranet.pdf"
+        ]
+    },
+    {
+        "query": "Describe the agent based monitoring architecture",
+        "relevant": [
+            "Agent_based_End_Host_Monitoring_in_Security_Critical_SDN_Enabled_IPv6_Intranet.pdf"
+        ]
+    },
+    {
+        "query": "Explain the semantic search approach for Nepali legal documents",
+        "relevant": [
+            "AI Powered Legal Precedent Retriever in Nepali Language.pdf"
+        ]
+    },
+    {
+        "query": "What embedding method was used for legal judgment retrieval?",
+        "relevant": [
+            "AI Powered Legal Precedent Retriever in Nepali Language.pdf"
+        ]
+    },
+    {
+        "query": "Describe the dataset used for legal document search",
+        "relevant": [
+            "AI Powered Legal Precedent Retriever in Nepali Language.pdf"
+        ]
+    },
+    {
+        "query": "Explain the AI based synthetic antivenom design methodology",
+        "relevant": [
+            "AI-DRIVEN DESIGN OF SYNTHETIC ANTIVENOM.pdf"
+        ]
+    },
+    {
+        "query": "What machine learning models were used for protein design?",
+        "relevant": [
+            "AI-DRIVEN DESIGN OF SYNTHETIC ANTIVENOM.pdf"
+        ]
+    },
+    {
+        "query": "Describe the evaluation process for synthetic antivenom generation",
+        "relevant": [
+            "AI-DRIVEN DESIGN OF SYNTHETIC ANTIVENOM.pdf"
+        ]
+    },
+    {
+        "query": "Explain the virtual try on system architecture",
+        "relevant": [
+            "AINA Virtual Try On..pdf"
+        ]
+    },
+    {
+        "query": "What computer vision techniques were used for virtual clothing try on?",
+        "relevant": [
+            "FitME Minor Project.pdf"
+        ]
+    },
+    {
+        "query": "Describe the AI based web security testing framework",
+        "relevant": [
+            "AI_Augmented_Static_and_Dynamic_Web_Security_Testing_Tool.pdf"
+        ]
+    },
+    {
+        "query": "What vulnerabilities were detected by the security testing tool?",
+        "relevant": [
+            "AI_Augmented_Static_and_Dynamic_Web_Security_Testing_Tool.pdf"
+        ]
+    },
+    {
+        "query": "Explain the static and dynamic analysis approach",
+        "relevant": [
+            "Dynamic Simulation of 2D Static Physical System.pdf"
+        ]
+    },
+    {
+        "query": "Describe the architecture of the Nepali legal chatbot",
+        "relevant": [
+            "AI_Powered_Legal_Chatbot_for_Nepal.pdf"
+        ]
+    },
+    {
+        "query": "What natural language processing techniques were used in the chatbot?",
+        "relevant": [
+            "Hygieia_AI_Chat_bot.pdf"
+        ]
+    },
+    {
+        "query": "How were user queries processed in the chatbot system?",
+        "relevant": [
+            "Hygieia_AI_Chat_bot.pdf"
+        ]
+    },
+    {
+        "query": "Explain the anomaly detection method used in surveillance videos",
+        "relevant": [
+            "Anomaly Detection in Surveillance Videos.pdf"
+        ]
+    },
+    {
+        "query": "What deep learning model was used for video anomaly detection?",
+        "relevant": [
+            "Anomaly Detection in Surveillance Videos.pdf"
+        ]
+    },
+    {
+        "query": "Describe the image hiding technique used in audio steganography",
+        "relevant": [
+            "AUDIOVAULT MINOR PROJECT REPORT FINAL.pdf"
+        ]
+    },
+    {
+        "query": "What steganography algorithm was used in the audio system?",
+        "relevant": [
+            "AUDIOVAULT MINOR PROJECT REPORT FINAL.pdf"
+        ]
+    },
+    {
+        "query": "Explain the deep learning approach used for audio denoising",
+        "relevant": [
+            "Audio_Denoiser.pdf"
+        ]
+    },
+    {
+        "query": "What neural network architecture was used for audio enhancement?",
+        "relevant": [
+            "Audio_Denoiser.pdf"
+        ]
+    },
+    {
+        "query": "Describe the smart form filler system implementation",
+        "relevant": [
+            "Autocitizenship-SmartFormFiller.pdf"
+        ]
+    },
+    {
+        "query": "What computer vision techniques were used in the form filling system?",
+        "relevant": [
+            "Object Centric Editing.pdf"
+        ]
+    },
+    {
+        "query": "Explain the AI interior design recommendation process",
+        "relevant": [
+            "Autodecor.pdf"
+        ]
+    },
+    {
+        "query": "What models were used for automated interior design?",
+        "relevant": [
+            "Autodecor.pdf"
+        ]
+    },
+    {
+        "query": "Describe the automated fare collection system architecture",
+        "relevant": [
+            "Automated_Fare_Collection report.pdf"
+        ]
+    },
+    {
+        "query": "What technologies were used for fare collection automation?",
+        "relevant": [
+            "Automated_Fare_Collection report.pdf"
+        ]
+    },
+    {
+        "query": "Explain the computer vision based automatic exam grading system",
+        "relevant": [
+            "Automatic Exam Grading System.pdf"
+        ]
+    },
+    {
+        "query": "What image processing techniques were used for exam grading?",
+        "relevant": [
+            "Automatic Exam Grading System.pdf"
+        ]
+    }
+]

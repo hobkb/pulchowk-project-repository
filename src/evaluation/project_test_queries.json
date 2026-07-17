@@ -1,0 +1,189 @@
+[
+    {
+        "query": "generate 3D mesh models from images",
+        "relevant": [
+            "2D TO 3D MESH GENERATOR"
+        ]
+    },
+    {
+        "query": "convert two dimensional data into three dimensional models",
+        "relevant": [
+            "2D TO 3D MESH GENERATOR"
+        ]
+    },
+    {
+        "query": "computer graphics based mesh generation",
+        "relevant": [
+            "2D TO 3D MESH GENERATOR"
+        ]
+    },
+
+    {
+        "query": "booth system for scanning and modeling small objects",
+        "relevant": [
+            "3D MODELING BOOTH FOR SMALL OBJECTS"
+        ]
+    },
+    {
+        "query": "3D object digitization system",
+        "relevant": [
+            "3D MODELING BOOTH FOR SMALL OBJECTS"
+        ]
+    },
+
+    {
+        "query": "preserving historical structures using 3D reconstruction",
+        "relevant": [
+            "3D RECONSTRUCTION OF HERITAGE STRUCTURES"
+        ]
+    },
+    {
+        "query": "digital heritage modeling system",
+        "relevant": [
+            "3D RECONSTRUCTION OF HERITAGE STRUCTURES"
+        ]
+    },
+
+    {
+        "query": "dynamic scene reconstruction from monocular video",
+        "relevant": [
+            "4D GAUSSIAN SPLATTING FROM MONOCULAR VIDEO"
+        ]
+    },
+    {
+        "query": "Gaussian splatting based 3D rendering",
+        "relevant": [
+            "4D GAUSSIAN SPLATTING FROM MONOCULAR VIDEO"
+        ]
+    },
+
+    {
+        "query": "compiler implementation for RISC V architecture",
+        "relevant": [
+            "A COMPILER FOR A SUBSET OF THE C PROGRAMMING LANGUAGE FOR THE RISC-V ISA"
+        ]
+    },
+    {
+        "query": "C language compiler design project",
+        "relevant": [
+            "A COMPILER FOR A SUBSET OF THE C PROGRAMMING LANGUAGE FOR THE RISC-V ISA"
+        ]
+    },
+
+    {
+        "query": "latent representation for autonomous driving",
+        "relevant": [
+            "LATENT WORLDS: A LATENT SPACE APPROACH TO AUTONOMOUS DRIVING TRAINING"
+        ]
+    },
+    {
+        "query": "self driving vehicle training simulation",
+        "relevant": [
+            "LATENT WORLDS: A LATENT SPACE APPROACH TO AUTONOMOUS DRIVING TRAINING"
+        ]
+    },
+
+    {
+        "query": "adaptive audio noise cancellation using reinforcement learning",
+        "relevant": [
+            "ADAPTIVE INDOOR NOISE CANCELLATION USING PPO-REINFORCEMENT LEARNING AND GENETIC ALGORITHM BENCHMARKING"
+        ]
+    },
+
+    {
+        "query": "SDN IPv6 network security monitoring",
+        "relevant": [
+            "AGENT-BASED END HOST MONITORING IN SECURITY CRITICAL SDN ENABLED IPV6 INTRANET"
+        ]
+    },
+
+    {
+        "query": "semantic search engine for Nepal legal documents",
+        "relevant": [
+            "AI-POWERED SEMANTIC SEARCH SYSTEM FOR NEPALESE LEGAL JUDGMENTS"
+        ]
+    },
+    {
+        "query": "AI based legal judgment retrieval",
+        "relevant": [
+            "AI-POWERED SEMANTIC SEARCH SYSTEM FOR NEPALESE LEGAL JUDGMENTS"
+        ]
+    },
+
+    {
+        "query": "protein design using artificial intelligence",
+        "relevant": [
+            "REPORT ON AI-DRIVEN DESIGN OF SYNTHETIC ANTIVENOM PROTEINS AGAINST COBRA NEUROTOXINS"
+        ]
+    },
+
+    {
+        "query": "virtual clothing try on using AI",
+        "relevant": [
+            "AINA - A VIRTUAL TRY ON"
+        ]
+    },
+
+    {
+        "query": "automated static and dynamic web security testing",
+        "relevant": [
+            "AI-AUGMENTED STATIC AND DYNAMIC WEB SECURITY TESTING TOOL"
+        ]
+    },
+
+    {
+        "query": "Nepali legal chatbot using natural language processing",
+        "relevant": [
+            "LEGAL CHATBOT FOR NEPAL"
+        ]
+    },
+
+    {
+        "query": "detect abnormal events in surveillance videos",
+        "relevant": [
+            "ANOMALY DETECTION IN SURVILLENCE VIDEOS"
+        ]
+    },
+
+    {
+        "query": "hide images inside audio files",
+        "relevant": [
+            "AUDIOVAULT: IMAGE IN AUDIO STEGANOGRAPHY"
+        ]
+    },
+
+    {
+        "query": "deep learning based audio enhancement",
+        "relevant": [
+            "AUDIO DENOISER USING DEEP LEARNING"
+        ]
+    },
+
+    {
+        "query": "smart form filling automation system",
+        "relevant": [
+            "REPORT ON AUTOCITIZENSHIP: SMART FORM FILLER (IPCV)"
+        ]
+    },
+
+    {
+        "query": "AI interior design recommendation system",
+        "relevant": [
+            "PROGRESS REPORT ON AUTODECOR: YOUR AI INTERIOR DESIGNER"
+        ]
+    },
+
+    {
+        "query": "automated fare collection system",
+        "relevant": [
+            "AUTOMATED FARE COLLECTION (AFC)"
+        ]
+    },
+
+    {
+        "query": "computer vision based automatic exam grading",
+        "relevant": [
+            "AUTOMATIC EXAM GRADING SYSTEM (IPCV)"
+        ]
+    }
+]

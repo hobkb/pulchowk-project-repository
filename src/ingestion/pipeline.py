@@ -1,118 +1,537 @@
 """
-Full ingestion pipeline orchestration.
+Full PostgreSQL + pgvector ingestion pipeline.
 
-For each PDF in docs/:
-  1. Hash it and check the registry: NEW / DUPLICATE (skip) / MODIFIED (re-index).
-  2. Extract layout -> reconstruct lines -> classify pages -> semantic chunk.
-  3. Transform chunks into DRF-ready payload records.
-  4. Back the payload up to extracted/payloads/ as JSON.
-  5. Index (or re-index) the payload into the Chroma vector store.
-  6. Update the registry.
+Pipeline:
+
+PDF
+ |
+Layout Extraction
+ |
+Line Reconstruction
+ |
+Page Classification
+ |
+Semantic Chunking
+ |
+ +----------------------------+
+ |                            |
+Content Level             Project Level
+(document_chunks)         (project_profiles)
+
+PostgreSQLVectorStore      ProjectVectorStore
+
+
+Used for:
+
+Content level:
+- semantic retrieval
+- RAG context retrieval
+- document Q&A
+
+
+Project level:
+- similar project recommendation
+- project discovery
+- project comparison
 """
 
+
 import json
+
 from datetime import datetime
 from pathlib import Path
 
-from .config import DOCS_DIR, PAYLOADS_DIR, REGISTRY_PATH, TIME_FORMAT, ensure_directories
+
+from .config import (
+    DOCS_DIR,
+    PAYLOADS_DIR,
+    REGISTRY_PATH,
+    TIME_FORMAT,
+    ensure_directories
+)
+
+
 from .hashing import generate_sha256
+
 from .logger import get_logger
+
 from .registry import IngestionRegistry
+
+
 from .pdf_extraction import PDFLayoutExtractor
+
 from .line_reconstruction import LineReconstructor
+
 from .page_classification import DocumentPageClassifier
+
+
 from .semantic_chunking import AcademicSemanticChunker
+
+
+from .project_chunking import ProjectLevelChunker
+
+
 from .payload_transform import DjangoIngestionTransformer
-from .vector_store import StatefulVectorPipeline
+
+
+from .document_store import DocumentStore
+
+from .postgres_vector_store import PostgreSQLVectorStore
+
+from .project_vector_store import ProjectVectorStore
+
+
 
 logger = get_logger()
 
 
-def process_single_pdf(pdf_path: Path, registry: IngestionRegistry, vector_pipeline: StatefulVectorPipeline) -> str:
-    """
-    Runs one PDF through the full extraction -> chunk -> transform -> index chain.
-    Returns one of: "skipped", "indexed", "modified".
-    """
+
+def process_single_pdf(
+    pdf_path: Path,
+    registry: IngestionRegistry,
+    document_store: DocumentStore,
+    content_store: PostgreSQLVectorStore,
+    project_store: ProjectVectorStore
+):
+
+
     filename = pdf_path.name
-    file_hash = generate_sha256(pdf_path)
 
-    existing_sha256, _existing_record = registry.find_by_filename(filename)
-    is_known = existing_sha256 is not None
-    is_unchanged = is_known and existing_sha256 == file_hash
-    is_modified = is_known and not is_unchanged
 
-    if is_unchanged:
-        print(f"Skipping {filename} (already indexed, unchanged).")
+    file_hash = generate_sha256(
+        pdf_path
+    )
+
+
+    existing_sha256, _ = registry.find_by_filename(
+        filename
+    )
+
+
+    if existing_sha256 == file_hash:
+
+        print(
+            f"Skipping {filename} (unchanged)"
+        )
+
         return "skipped"
 
-    if is_modified:
-        print(f"Change detected in {filename}, re-processing...")
+
+
+    if existing_sha256:
+
+        print(
+            f"Modified file detected: {filename}"
+        )
+
     else:
-        print(f"Processing new file: {filename}")
 
-    # Extraction -> reconstruction -> classification -> chunking -> payload transform
-    raw_pages = PDFLayoutExtractor.extract_pages(str(pdf_path))
-    reconstructed = LineReconstructor.reconstruct(raw_pages)
-    classified = DocumentPageClassifier.classify(reconstructed)
-    chunks = AcademicSemanticChunker.chunk_document(classified)
-    payloads = DjangoIngestionTransformer.transform_to_payload(chunks)
+        print(
+            f"New file detected: {filename}"
+        )
 
-    # JSON backup
+
+
+    # =====================================================
+    # 1. PDF Processing
+    # =====================================================
+
+
+    raw_pages = PDFLayoutExtractor.extract_pages(
+        str(pdf_path)
+    )
+
+
+    reconstructed = LineReconstructor.reconstruct(
+        raw_pages
+    )
+
+
+    classified = DocumentPageClassifier.classify(
+        reconstructed
+    )
+
+
+
+    # =====================================================
+    # 2. Semantic Content Chunking
+    # =====================================================
+
+
+    chunks = AcademicSemanticChunker.chunk_document(
+        classified
+    )
+
+
+
+    # =====================================================
+    # 3. Project Profile Generation
+    # =====================================================
+
+
+    project_title = (
+        DjangoIngestionTransformer
+        .get_project_title(chunks)
+    )
+
+
+    project_profile = (
+        ProjectLevelChunker
+        .build_project_profile(
+            project_title,
+            chunks
+        )
+    )
+
+
+
+    # =====================================================
+    # 4. Register Document
+    # =====================================================
+
+
+    document_id = document_store.upsert_document(
+
+        filename=filename,
+
+        project_title=project_title,
+
+        file_hash=file_hash,
+
+        page_count=len(classified)
+
+    )
+
+
+
+    # =====================================================
+    # 5. Content Payload Creation
+    # =====================================================
+
+
+    payloads = (
+        DjangoIngestionTransformer
+        .transform_to_payload(
+            chunks
+        )
+    )
+
+
+
     ensure_directories()
-    json_path = PAYLOADS_DIR / f"processed_{pdf_path.stem}.json"
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(payloads, f, indent=4, ensure_ascii=False)
-    logger.info(f"Backup JSON saved to: {json_path}")
-
-    # Vector store indexing (delete-then-insert handles the modified case too)
-    vector_pipeline.index_payloads_to_vector_store(filename, payloads)
-
-    # Registry update: drop the stale hash entry (if any) and register the current one
-    registry.replace_document(existing_sha256, {
-        "sha256": file_hash,
-        "filename": filename,
-        "chunk_count": len(payloads),
-        "timestamp": datetime.now().strftime(TIME_FORMAT),
-    })
-
-    print(f"Successfully completed: {filename} ({len(payloads)} chunks)")
-    return "modified" if is_modified else "indexed"
 
 
-def run_full_pipeline(pdf_folder=None) -> dict:
-    """
-    Processes every PDF found in `pdf_folder` (defaults to config.DOCS_DIR).
-    Safe to call repeatedly / on a schedule -- unchanged files are skipped,
-    modified files are re-indexed, new files are indexed.
-    """
+
+    json_path = (
+
+        PAYLOADS_DIR /
+
+        f"processed_{pdf_path.stem}.json"
+
+    )
+
+
+
+    with open(
+        json_path,
+        "w",
+        encoding="utf-8"
+    ) as file:
+
+
+        json.dump(
+
+            payloads,
+
+            file,
+
+            indent=4,
+
+            ensure_ascii=False
+
+        )
+
+
+
+    logger.info(
+        f"Payload backup saved: {json_path}"
+    )
+
+
+
+    # =====================================================
+    # 6. Store Content Chunks
+    # =====================================================
+
+
+    content_store.index_document(
+
+    document_id=document_id,
+
+    payloads=payloads
+
+)
+
+
+
+    # =====================================================
+    # 7. Store Project Profile
+    # =====================================================
+
+
+    project_store.upsert_project_profile(
+
+        document_id=document_id,
+
+        profile=project_profile
+
+    )
+
+
+
+    # =====================================================
+    # 8. Registry Update
+    # =====================================================
+
+
+    registry.replace_document(
+
+        existing_sha256,
+
+        {
+
+            "sha256": file_hash,
+
+            "filename": filename,
+
+            "document_id": document_id,
+
+            "chunk_count": len(payloads),
+
+            "timestamp":
+                datetime.now()
+                .strftime(
+                    TIME_FORMAT
+                )
+
+        }
+
+    )
+
+
+
+    print(
+        f"Completed {filename}: "
+        f"{len(payloads)} chunks + 1 project profile"
+    )
+
+
+
+    return (
+
+        "modified"
+
+        if existing_sha256
+
+        else
+
+        "indexed"
+
+    )
+
+
+
+
+
+def run_full_pipeline(
+    pdf_folder=None
+):
+
+
     ensure_directories()
-    pdf_folder_path = Path(pdf_folder) if pdf_folder else DOCS_DIR
 
-    registry = IngestionRegistry(REGISTRY_PATH)
-    vector_pipeline = StatefulVectorPipeline()
 
-    results = {"indexed": 0, "modified": 0, "skipped": 0, "failed": 0}
 
-    pdf_files = list(pdf_folder_path.glob("*.pdf"))
+    folder = (
+
+        Path(pdf_folder)
+
+        if pdf_folder
+
+        else DOCS_DIR
+
+    )
+
+
+
+    registry = IngestionRegistry(
+        REGISTRY_PATH
+    )
+
+
+
+    document_store = DocumentStore()
+
+
+
+    content_store = PostgreSQLVectorStore()
+
+
+    project_store = ProjectVectorStore()
+
+
+
+    results = {
+
+        "indexed":0,
+
+        "modified":0,
+
+        "skipped":0,
+
+        "failed":0
+
+    }
+
+
+
+    pdf_files = list(
+
+        folder.glob("*.pdf")
+
+    )
+
+
+
     if not pdf_files:
-        print(f"No PDF files found in {pdf_folder_path}.")
+
+
+        print(
+            f"No PDFs found in {folder}"
+        )
+
+
         return results
 
+
+
     for pdf_path in pdf_files:
+
+
         try:
-            outcome = process_single_pdf(pdf_path, registry, vector_pipeline)
-            results[outcome] += 1
-        except Exception as e:
-            logger.error(f"Failed processing {pdf_path.name}: {e}")
-            print(f"Error processing {pdf_path.name}: {e}")
+
+
+            status = process_single_pdf(
+
+                pdf_path,
+
+                registry,
+
+                document_store,
+
+                content_store,
+
+                project_store
+
+            )
+
+
+            results[status] += 1
+
+
+
+        except Exception as error:
+
+            import traceback
+
+            print(
+                f"\nFAILED: {pdf_path.name}"
+            )
+
+            traceback.print_exc()
+
+
+            # Reset PostgreSQL transactions
+            try:
+
+                content_store.connection.rollback()
+
+            except Exception:
+                pass
+
+
+            try:
+
+                project_store.connection.rollback()
+
+            except Exception:
+                pass
+
+
+            try:
+
+                document_store.connection.rollback()
+
+            except Exception:
+                pass
+
+
+
             results["failed"] += 1
 
-    print("--- CHROMA VEC-STORE INGESTION COMPLETE ---")
-    print(f"Operational Storage Path     : {vector_pipeline.db_path}")
-    print(f"New                          : {results['indexed']}")
-    print(f"Modified & re-indexed        : {results['modified']}")
-    print(f"Skipped (unchanged)          : {results['skipped']}")
-    print(f"Failed                       : {results['failed']}")
-    print(f"Total Database Payload Count : {vector_pipeline.collection.count()} chunks")
+
+
+
+    print(
+        "\n========== INGESTION COMPLETE =========="
+    )
+
+
+
+    print(
+        content_store.describe()
+    )
+
+
+    print(
+        project_store.describe()
+    )
+
+
+    print(
+        f"Documents: {document_store.count()}"
+    )
+
+
+    print(
+        f"Content chunks: {content_store.count()}"
+    )
+
+
+    print(
+        f"Project profiles: {project_store.count()}"
+    )
+
+
+    print(
+        f"New: {results['indexed']}"
+    )
+
+
+    print(
+        f"Modified: {results['modified']}"
+    )
+
+
+    print(
+        f"Skipped: {results['skipped']}"
+    )
+
+
+    print(
+        f"Failed: {results['failed']}"
+    )
+
+
 
     return results

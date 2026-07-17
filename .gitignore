@@ -56,3 +56,20 @@ Thumbs.db
 # --- Misc local artifacts ---
 *.log
 *.tmp
+# ==========================
+# Environment variables
+# ==========================
+
+.env
+.env.*
+!.env.example
+# VS Code local history
+.history/
+
+# Local databases
+database/
+project_chroma_db/
+
+# PostgreSQL dumps/local data
+*.sql
+*.dump

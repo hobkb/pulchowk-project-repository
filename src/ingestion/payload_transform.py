@@ -24,7 +24,7 @@ class DjangoIngestionTransformer:
         "list_of_abbreviations",
         "approval",
         "acknowledgement",
-         "copyright",
+        "copyright",
     }
 
     @staticmethod
@@ -81,15 +81,23 @@ class DjangoIngestionTransformer:
         return int(len(text.split()) * 1.33)
 
     @staticmethod
+    def get_project_title(chunks):
+        """
+        Finds the cover-page chunk and extracts a clean project title from it.
+        Shared by content-level payload transformation and project-level
+        chunking, so both agree on the same title for a given document.
+        """
+        for chunk in chunks:
+            if chunk["metadata"].get("page_type") == "cover":
+                return DjangoIngestionTransformer.extract_clean_project_title(chunk["text"])
+        return "UNKNOWN PROJECT TITLE"
+
+    @staticmethod
     def transform_to_payload(chunks):
         payloads = []
 
         # Extract title safely using layout boundaries
-        global_title = "UNKNOWN PROJECT TITLE"
-        for chunk in chunks:
-            if chunk["metadata"].get("page_type") == "cover":
-                global_title = DjangoIngestionTransformer.extract_clean_project_title(chunk["text"])
-                break
+        global_title = DjangoIngestionTransformer.get_project_title(chunks)
 
         # Map semantic units into content payloads for Django REST Framework ingestion
         valid_chunk_index = 0
@@ -101,19 +109,62 @@ class DjangoIngestionTransformer:
             text_content = chunk["text"]
 
             record = {
-                "chunk_index": valid_chunk_index,
-                "page_number": meta["page_number"],
-                "page_type": meta["page_type"],
-                "hierarchy": {
-                    "project_title": global_title,
-                    "chapter": meta["chapter"],
-                    "chapter_title": meta["chapter_title"],
-                    "section_number": meta["section"],
-                    "section_title": meta["section_title"],
-                },
-                "estimated_tokens": DjangoIngestionTransformer.calculate_token_estimate(text_content),
-                "content_body": text_content,
-            }
+
+    "chunk_index": valid_chunk_index,
+
+    "page_number": meta.get(
+        "page_number",
+        0
+    ),
+
+    "page_type": meta.get(
+        "page_type",
+        "content"
+    ),
+
+    "hierarchy": {
+
+        "project_title": global_title,
+
+        "chapter": meta.get(
+            "chapter",
+            ""
+        ),
+
+        "chapter_title": meta.get(
+            "chapter_title",
+            ""
+        ),
+
+        "section_number": meta.get(
+            "section_number",
+            meta.get(
+                "section",
+                "General"
+            )
+        ),
+
+        "section_title": meta.get(
+            "section_title",
+            "Body Paragraphs"
+        ),
+    },
+
+
+    "estimated_tokens":
+        DjangoIngestionTransformer.calculate_token_estimate(
+            text_content
+        ),
+
+    "character_count":
+        len(text_content),
+
+    "content":
+        text_content,
+
+    "metadata":
+        meta
+}
             payloads.append(record)
             valid_chunk_index += 1
 
