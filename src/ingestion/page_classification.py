@@ -134,7 +134,7 @@ class DocumentPageClassifier:
             )
 
 
-            if page_num in [1, 2]:
+            if page_num == 1:
 
                 page["page_type"] = "cover"
 
@@ -260,7 +260,7 @@ class DocumentPageClassifier:
 
             else:
 
-                if current_sequence_state == "cover" and page_num == 3:
+                if current_sequence_state == "cover" and page_num == 2:
 
                     current_sequence_state = "approval"
 
@@ -350,4 +350,4 @@ def process_document_and_classify_domain(pages: list) -> tuple[list, str]:
     )
 
 
-    return classified_pages, assigned_domain    
+    return classified_pages, assigned_domain

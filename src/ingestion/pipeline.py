@@ -11,6 +11,8 @@ Line Reconstruction
  |
 Page Classification
  |
+Metadata Extraction
+ |
 Semantic Chunking
  |
  +----------------------------+
@@ -45,6 +47,7 @@ from pathlib import Path
 from .config import (
     DOCS_DIR,
     PAYLOADS_DIR,
+    METADATA_DIR,
     REGISTRY_PATH,
     TIME_FORMAT,
     ensure_directories
@@ -63,6 +66,8 @@ from .pdf_extraction import PDFLayoutExtractor
 from .line_reconstruction import LineReconstructor
 
 from .page_classification import DocumentPageClassifier
+
+from .metadata_extraction import DocumentMetadataExtractor
 
 
 from .semantic_chunking import AcademicSemanticChunker
@@ -154,7 +159,61 @@ def process_single_pdf(
 
 
     # =====================================================
-    # 2. Semantic Content Chunking
+    # 2. Document Metadata Extraction
+    # =====================================================
+
+
+    extracted_metadata = (
+        DocumentMetadataExtractor.extract(
+            classified
+        )
+    )
+
+
+
+    ensure_directories()
+
+
+
+    metadata_path = (
+
+        METADATA_DIR /
+
+        f"{pdf_path.stem}.json"
+
+    )
+
+
+
+    with open(
+        metadata_path,
+        "w",
+        encoding="utf-8"
+    ) as file:
+
+
+        json.dump(
+
+            extracted_metadata,
+
+            file,
+
+            indent=4,
+
+            ensure_ascii=False
+
+        )
+
+
+
+    logger.info(
+        f"Metadata extraction saved: {metadata_path}"
+    )
+
+
+
+    # =====================================================
+    # 3. Semantic Content Chunking
     # =====================================================
 
 
@@ -165,7 +224,7 @@ def process_single_pdf(
 
 
     # =====================================================
-    # 3. Project Profile Generation
+    # 4. Project Profile Generation
     # =====================================================
 
 
@@ -186,7 +245,7 @@ def process_single_pdf(
 
 
     # =====================================================
-    # 4. Register Document
+    # 5. Register Document
     # =====================================================
 
 
@@ -205,7 +264,7 @@ def process_single_pdf(
 
 
     # =====================================================
-    # 5. Content Payload Creation
+    # 6. Content Payload Creation
     # =====================================================
 
 
@@ -260,22 +319,22 @@ def process_single_pdf(
 
 
     # =====================================================
-    # 6. Store Content Chunks
+    # 7. Store Content Chunks
     # =====================================================
 
 
     content_store.index_document(
 
-    document_id=document_id,
+        document_id=document_id,
 
-    payloads=payloads
+        payloads=payloads
 
-)
+    )
 
 
 
     # =====================================================
-    # 7. Store Project Profile
+    # 8. Store Project Profile
     # =====================================================
 
 
@@ -290,7 +349,7 @@ def process_single_pdf(
 
 
     # =====================================================
-    # 8. Registry Update
+    # 9. Registry Update
     # =====================================================
 
 
@@ -322,7 +381,7 @@ def process_single_pdf(
 
     print(
         f"Completed {filename}: "
-        f"{len(payloads)} chunks + 1 project profile"
+        f"{len(payloads)} chunks + 1 project profile + metadata"
     )
 
 
@@ -451,7 +510,7 @@ def run_full_pipeline(
             traceback.print_exc()
 
 
-            # Reset PostgreSQL transactions
+
             try:
 
                 content_store.connection.rollback()
@@ -460,12 +519,14 @@ def run_full_pipeline(
                 pass
 
 
+
             try:
 
                 project_store.connection.rollback()
 
             except Exception:
                 pass
+
 
 
             try:
