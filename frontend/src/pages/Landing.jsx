@@ -1,10 +1,15 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import GoogleLoginButton from "../components/GoogleLoginButton";
+import ErrorBanner from "../components/ErrorBanner";
 import tuLogo from "../assets/tu.png";
+
+import {useState} from "react";
 
 export default function Landing() {
   const { status } = useAuth();
+  const [error, setError] = useState("");
+
   if (status === "authenticated") return <Navigate to="/dashboard" replace />;
 
   return (
@@ -30,7 +35,9 @@ export default function Landing() {
           </p>
           <div className="inline-flex flex-col items-center gap-4 border border-gray-200 rounded-xl shadow-sm p-7">
             <p className="text-sm text-gray-500">Sign in with your Google account</p>
-            <GoogleLoginButton />
+            <p className="text-xs text-red-800">Note: Application is restricted to pcampus accounts</p>
+            <GoogleLoginButton onError={setError}/>
+               <ErrorBanner message={error} />
           </div>
         </div>
       </main>
