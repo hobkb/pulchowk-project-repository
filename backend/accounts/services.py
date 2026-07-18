@@ -46,7 +46,7 @@ class GoogleService:
 
         if not email.endswith("@pcampus.edu.np"):
             raise GoogleAuthenticationError(
-                "Only Pulchowk Campus Google accounts are allowed."
+                "Authentication failed. Please sign in with your Pulchowk Campus Google Account."
             )
 
         return {
