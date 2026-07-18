@@ -3,7 +3,7 @@
 """
 Interactive content-level semantic search testing.
 
-Retrieves document chunks from ChromaDB.
+Retrieves document chunks from PostgreSQL + pgvector.
 """
 
 
@@ -13,46 +13,85 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-from src.ingestion.vector_store import StatefulVectorPipeline
+from src.ingestion.postgres_vector_store import PostgreSQLVectorStore
+
+
 
 
 
 def classify_distance(distance):
 
-    if distance <= 0.25:
+
+    if distance <= 0.30:
+
         return "VERY SIMILAR"
 
-    elif distance <= 0.45:
+
+    elif distance <= 0.55:
+
         return "RELATED"
+
 
     return "LOW MATCH"
 
 
 
+
+
 def similarity_score(distance):
+
 
     score = max(
         0,
-        1-distance
+        1 - distance
     )
 
+
     return round(
-        score*100,
+        score * 100,
         2
     )
+
+
 
 
 
 def query_content(query):
 
 
-    store = StatefulVectorPipeline()
+    store = PostgreSQLVectorStore()
+
 
 
     results = store.search(
+
         query,
+
         top_k=5
+
     )
+
+
+
+    documents = results.get(
+        "documents",
+        [[]]
+    )[0]
+
+
+    metadatas = results.get(
+        "metadatas",
+        [[]]
+    )[0]
+
+
+    distances = results.get(
+        "distances",
+        [[]]
+    )[0]
+
+
+
 
 
     print("\n==============================")
@@ -65,32 +104,54 @@ def query_content(query):
 
 
 
-    for rank in range(
-        len(results["documents"][0])
+    if not documents:
+
+
+        print(
+            "\nNo matching chunks found."
+        )
+
+        return
+
+
+
+
+
+    for rank, document in enumerate(
+
+        documents,
+
+        1
+
     ):
 
 
-        metadata = results["metadatas"][0][rank]
+        metadata = metadatas[rank - 1]
 
-        distance = results["distances"][0][rank]
+        distance = distances[rank - 1]
 
 
 
-        print("\n------------------------------")
+        print(
+            "\n------------------------------"
+        )
+
 
         print(
             "Rank:",
-            rank+1
+            rank
         )
+
 
 
         print(
-            "Source:",
+            "File:",
             metadata.get(
-                "source_file",
+                "filename",
                 ""
             )
         )
+
 
 
         print(
@@ -102,6 +163,27 @@ def query_content(query):
         )
 
 
+
+        print(
+            "Page Type:",
+            metadata.get(
+                "page_type",
+                ""
+            )
+        )
+
+
+
+        print(
+            "Chapter:",
+            metadata.get(
+                "chapter_title",
+                ""
+            )
+        )
+
+
+
         print(
             "Section:",
             metadata.get(
@@ -109,6 +191,7 @@ def query_content(query):
                 ""
             )
         )
+
 
 
         print(
@@ -120,6 +203,7 @@ def query_content(query):
         )
 
 
+
         print(
             "Distance:",
             round(
@@ -129,10 +213,12 @@ def query_content(query):
         )
 
 
+
         print(
             "Similarity:",
             classify_distance(distance)
         )
+
 
 
         print(
@@ -142,29 +228,45 @@ def query_content(query):
         )
 
 
-        print("\nContent preview:")
 
         print(
-            results["documents"][0][rank][:500]
+            "\nContent preview:"
+        )
+
+
+        print(
+            document[:500]
         )
 
 
 
-if __name__=="__main__":
 
 
-    if len(sys.argv)>1:
+if __name__ == "__main__":
+
+
+
+    if len(sys.argv) > 1:
+
 
         query_content(
+
             " ".join(sys.argv[1:])
+
         )
+
 
     else:
 
-        query=input(
+
+        query = input(
             "Enter content query: "
         )
 
+
         if query:
 
-            query_content(query)
+
+            query_content(
+                query
+            )

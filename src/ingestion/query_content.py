@@ -8,7 +8,7 @@ PostgreSQL + pgvector document_chunks table
 """
 
 
-from .postgres_vector_store import PostgreSQLVectorStore
+from src.ingestion.postgres_vector_store import PostgreSQLVectorStore
 
 
 
@@ -100,7 +100,17 @@ def query_content(
 
 
     print(
-        "\n" + "="*70
+        "\n" + "=" * 70
+    )
+
+
+    print(
+        "CONTENT SEARCH RESULTS"
+    )
+
+
+    print(
+        "=" * 70
     )
 
 
@@ -111,11 +121,6 @@ def query_content(
 
     print(
         f"CONTENT CHUNKS DATABASE: {total}"
-    )
-
-
-    print(
-        "="*70
     )
 
 
@@ -137,10 +142,12 @@ def query_content(
 
 
     for rank, document in enumerate(
-        documents,
-        1
-    ):
 
+        documents,
+
+        1
+
+    ):
 
 
         metadata = metadatas[rank - 1]
@@ -151,7 +158,12 @@ def query_content(
 
 
         print(
-            f"\nRank {rank}"
+            "\n" + "-" * 70
+        )
+
+
+        print(
+            f"Rank: {rank}"
         )
 
 
@@ -254,9 +266,8 @@ def query_content(
 
 
         print(
-            "-"*70
+            "-" * 70
         )
-
 
 
 
@@ -271,7 +282,7 @@ if __name__ == "__main__":
 
 
         query = input(
-            "\nSearch content: "
+            "\nSearch content (type exit): "
         )
 
 
@@ -282,12 +293,15 @@ if __name__ == "__main__":
 
 
 
-        query_content(
+        if query.strip():
 
-            query,
 
-            top_k=5,
+            query_content(
 
-            show_details=True
+                query,
 
-        )
+                top_k=5,
+
+                show_details=True
+
+            )

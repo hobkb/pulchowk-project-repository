@@ -7,19 +7,19 @@ _STOPWORDS = {
     "this","that","these","those","it","its","from","at",
     "which","will","can","also","our","we",
 
-    "project","system","report","study","research",
+    "project","report","study","research",
     "paper","thesis","chapter","figure","table",
+
     "abstract","introduction","background",
-    "objective","objectives","methodology",
-    "method","implementation","design",
+    "objective","objectives",
+
+    "methodology","method",
+    "approach",
+    "technique","techniques",
+
     "results","conclusion","future",
 
-    "model","models","data","dataset",
-    "training","trained","testing",
-    "performance","approach",
-    "technique","techniques",
-    "using","used","based",
-    "development","developed"
+    "using","used","based"
 }
 
 

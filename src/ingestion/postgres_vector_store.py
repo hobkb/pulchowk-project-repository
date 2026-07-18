@@ -612,10 +612,10 @@ class PostgreSQLVectorStore:
 
                 (
 
-                    query_embedding.tolist(),
+                    query_embedding,
 
 
-                    query_embedding.tolist(),
+                    query_embedding,
 
 
                     top_k

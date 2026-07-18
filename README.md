@@ -1,40 +1,51 @@
 # RAG Ingestion Pipeline
 
 Automated, hash-based, incremental PDF ingestion pipeline for the Pulchowk
-project repository. Rebuilt as plain `.py` modules (no notebooks) so it can
-be imported directly into a Django project.
+Project Repository. Built as modular Python components for seamless integration
+with Django and powered by PostgreSQL + pgvector for semantic document retrieval.
 
 ## Folder structure
 
-```
+```text
 RAG/
-├── docs/                      # Drop PDFs here
-├── chroma_db/                 # Chroma persistent vector store (auto-managed)
-├── registry/
-│   └── ingestion_registry.json    # Single source of truth: filename -> sha256, timestamp, chunk_count
+├── database/
+│   └── schema.sql                 # PostgreSQL + pgvector schema
+├── docs/                          # Drop PDFs here
+├── extracted/
+│   ├── metadata/
+│   ├── payloads/                  # Processed payload backups
+│   └── summaries/
 ├── logs/
 │   └── ingestion.log
-├── extracted/
-│   ├── payloads/               # processed_<filename>.json backups (one per PDF)
-│   ├── summaries/               # reserved for future use
-│   └── metadata/                # reserved for future use
+├── registry/
+│   └── ingestion_registry.json    # NEW / MODIFIED / DUPLICATE tracking
 ├── src/
 │   └── ingestion/
-│       ├── config.py            # All paths & constants, resolved from this file's location
-│       ├── logger.py            # Shared logging setup
-│       ├── hashing.py           # SHA-256 fingerprinting
-│       ├── registry.py          # IngestionRegistry - NEW/DUPLICATE/MODIFIED tracking
-│       ├── pdf_extraction.py    # PDFLayoutExtractor
-│       ├── line_reconstruction.py   # LineReconstructor
-│       ├── page_classification.py   # DocumentPageClassifier
-│       ├── semantic_chunking.py     # AcademicSemanticChunker
-│       ├── payload_transform.py     # DjangoIngestionTransformer
-│       ├── vector_store.py          # StatefulVectorPipeline (Chroma)
-│       └── pipeline.py              # run_full_pipeline() orchestration
-├── run_ingestion.py             # CLI entrypoint
-└── requirements.txt
+│       ├── config.py
+│       ├── hashing.py
+│       ├── heading_utils.py
+│       ├── line_reconstruction.py
+│       ├── logger.py
+│       ├── page_classification.py
+│       ├── payload_transform.py
+│       ├── pdf_extraction.py
+│       ├── pipeline.py
+│       ├── postgres_vector_store.py
+│       ├── project_level_chunking.py
+│       ├── project_vector_store.py
+│       ├── registry.py
+│       └── semantic_chunking.py
+├── check_sections.py
+├── eval.py
+├── query_similar_projects.py
+├── requirements.txt
+├── reset_db.py
+├── run_content.py
+├── run_evaluation.py
+├── run_ingestion.py
+├── verify_chroma.py
+└── verify_ingestion.py
 ```
-
 ## Running it
 
 ```bash
