@@ -16,6 +16,7 @@ Used for:
 from sentence_transformers import SentenceTransformer
 import psycopg
 
+from psycopg.types.json import Json
 from pgvector.psycopg import register_vector
 
 from . import config
@@ -153,6 +154,10 @@ class ProjectVectorStore:
 
                         task,
 
+                        domain_scores,
+
+                        task_scores,
+
                         keywords,
 
                         abstract,
@@ -178,7 +183,9 @@ class ProjectVectorStore:
 
                         %s,%s,%s,%s,%s,%s,
 
-                        %s,%s,%s,%s,%s,%s
+                        %s,%s,%s,%s,%s,%s,
+
+                        %s,%s
 
                     )
 
@@ -193,6 +200,10 @@ class ProjectVectorStore:
                         domain = EXCLUDED.domain,
 
                         task = EXCLUDED.task,
+
+                        domain_scores = EXCLUDED.domain_scores,
+
+                        task_scores = EXCLUDED.task_scores,
 
                         keywords = EXCLUDED.keywords,
 
@@ -246,6 +257,22 @@ class ProjectVectorStore:
                                 "Unknown"
                             )
 
+                        ),
+
+
+                        Json(
+                            profile.get(
+                                "domain_scores",
+                                []
+                            )
+                        ),
+
+
+                        Json(
+                            profile.get(
+                                "task_scores",
+                                []
+                            )
                         ),
 
 
@@ -435,6 +462,10 @@ class ProjectVectorStore:
 
                     task,
 
+                    domain_scores,
+
+                    task_scores,
+
                     keywords,
 
                     abstract,
@@ -530,16 +561,22 @@ class ProjectVectorStore:
                             "task": row[3],
 
 
-                            "keywords": row[4],
+                            "domain_scores": row[4],
 
 
-                            "abstract": row[5],
+                            "task_scores": row[5],
 
 
-                            "objectives": row[6],
+                            "keywords": row[6],
 
 
-                            "methodology": row[7]
+                            "abstract": row[7],
+
+
+                            "objectives": row[8],
+
+
+                            "methodology": row[9]
 
 
                         }
@@ -579,6 +616,10 @@ class ProjectVectorStore:
                     pp.domain,
 
                     pp.task,
+
+                    pp.domain_scores,
+
+                    pp.task_scores,
 
                     pp.keywords,
 
@@ -638,21 +679,90 @@ class ProjectVectorStore:
             "task": row[3],
 
 
-            "keywords": row[4],
+            "domain_scores": row[4],
 
 
-            "abstract": row[5],
+            "task_scores": row[5],
 
 
-            "objectives": row[6],
+            "keywords": row[6],
 
 
-            "methodology": row[7],
+            "abstract": row[7],
 
 
-            "embedding_text": row[8]
+            "objectives": row[8],
+
+
+            "methodology": row[9],
+
+
+            "embedding_text": row[10]
 
         }
+
+
+    # -------------------------------------------------
+    # Domain-filtered lookup
+    # -------------------------------------------------
+
+    def get_projects_by_domain(
+        self,
+        domain,
+        top_k=20
+    ):
+
+        """
+        Returns projects where `domain` appears anywhere in their ranked
+        domain_scores (primary OR secondary), not just projects whose
+        single top-scoring domain happens to match. This is what makes
+        multi-domain projects discoverable under each domain they
+        genuinely touch, instead of only their single strongest one.
+        """
+
+        with self.connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+
+                    document_id,
+                    project_title,
+                    domain,
+                    task,
+                    domain_scores,
+                    task_scores
+
+                FROM project_profiles
+
+                WHERE domain_scores @> %s::jsonb
+
+                OR domain = %s
+
+                LIMIT %s
+                """,
+                (
+                    Json([{"domain": domain}]),
+                    domain,
+                    top_k
+                )
+            )
+
+            rows = cursor.fetchall()
+
+        return [
+            {
+                "id": row[0],
+                "project_title": row[1],
+                "domain": row[2],
+                "task": row[3],
+                "domain_scores": row[4],
+                "task_scores": row[5],
+            }
+            for row in rows
+        ]
+
+
 
     # -------------------------------------------------
     # Utility

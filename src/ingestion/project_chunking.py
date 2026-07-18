@@ -1,5 +1,8 @@
 import re
 
+from .domain_classifier import classify_project_domain_full
+from .task_classifier import classify_project_task_full
+
 
 _STOPWORDS = {
     "the","a","an","of","and","or","in","on","to","for","with",
@@ -23,174 +26,6 @@ _STOPWORDS = {
 }
 
 
-_WORD_PATTERN = re.compile(
-    r"\b[a-zA-Z0-9_-]{3,}\b"
-)
-
-
-# KEEP YOUR EXISTING DOMAIN RULES
-# KEEP YOUR EXISTING TASK RULES
-
-import re
-
-
-_STOPWORDS = {
-    ...
-}
-
-
-_WORD_PATTERN = re.compile(
-    r"\b[a-zA-Z0-9_-]{3,}\b"
-)
-
-
-_DOMAIN_RULES = {
-
-    "Computer Vision & Image Processing": {
-
-        "face":10,
-        "image":6,
-        "video":6,
-        "camera":6,
-        "opencv":10,
-        "yolo":10,
-        "segmentation":10,
-        "pixel":6,
-        "vision":8,
-        "object":5,
-        "detection":4,
-        "cnn":3,
-        "gan":5,
-    },
-
-
-    "Natural Language Processing": {
-
-        "text":7,
-        "language":10,
-        "sentence":10,
-        "bert":10,
-        "sbert":10,
-        "transformer":8,
-        "embedding":8,
-        "semantic":8,
-        "similarity":8,
-        "question":7,
-        "tokenization":10,
-        "corpus":8,
-        "llm":10,
-    },
-
-
-    "Biomedical AI & Signal Processing": {
-
-        "ppg":15,
-        "ecg":15,
-        "eeg":15,
-        "heart":10,
-        "pulse":10,
-        "blood":8,
-        "oxygen":8,
-        "medical":10,
-        "clinical":10,
-        "physiological":12,
-        "signal":7,
-    },
-
-
-    "Healthcare AI": {
-
-        "disease":10,
-        "diagnosis":10,
-        "doctor":8,
-        "patient":8,
-        "mri":12,
-        "tumor":12,
-        "healthcare":12,
-    },
-
-
-    "Hardware & IoT": {
-
-        "arduino":15,
-        "esp32":15,
-        "sensor":8,
-        "iot":12,
-        "microcontroller":15,
-        "raspberry":10,
-        "embedded":10,
-        "firmware":10,
-    },
-
-
-    "Web & Software Systems": {
-
-        "django":10,
-        "react":10,
-        "frontend":8,
-        "backend":8,
-        "api":8,
-        "database":8,
-        "postgresql":10,
-        "mongodb":8,
-        "flutter":10,
-    }
-
-}
-
-
-
-_TASK_RULES = {
-
-    "Object Detection":{
-        "yolo":10,
-        "bounding":10,
-        "detection":8,
-        "localization":8,
-    },
-
-
-    "Recognition":{
-        "recognition":10,
-        "face":8,
-        "identity":10,
-    },
-
-
-    "Prediction":{
-        "prediction":10,
-        "forecast":8,
-        "estimate":8,
-    },
-
-
-    "Classification":{
-        "classification":10,
-        "categorization":8,
-    },
-
-
-    "Semantic Similarity":{
-        "similarity":12,
-        "sbert":12,
-        "embedding":10,
-        "sentence":8,
-    },
-
-
-    "Generation":{
-        "generation":10,
-        "generative":10,
-        "music":8,
-    },
-
-
-    "Detection & Analysis":{
-        "detection":8,
-        "analysis":5
-    }
-
-}
 class ProjectLevelChunker:
 
 
@@ -261,78 +96,6 @@ class ProjectLevelChunker:
         except ValueError:
 
             return []
-
-
-
-    @staticmethod
-    def infer_domain(text):
-
-        words=set(
-            _WORD_PATTERN.findall(
-                text.lower()
-            )
-        )
-
-
-        scores={}
-
-
-        for domain,terms in _DOMAIN_RULES.items():
-
-            scores[domain]=sum(
-                weight
-                for term,weight in terms.items()
-                if term in words
-            )
-
-
-        best=max(
-            scores,
-            key=scores.get
-        )
-
-
-        if scores[best]==0:
-            return "General Software Engineering"
-
-
-        return best
-
-
-
-    @staticmethod
-    def infer_task(text):
-
-        words=set(
-            _WORD_PATTERN.findall(
-                text.lower()
-            )
-        )
-
-
-        scores={}
-
-
-        for task,terms in _TASK_RULES.items():
-
-            scores[task]=sum(
-                weight
-                for term,weight in terms.items()
-                if term in words
-            )
-
-
-        best=max(
-            scores,
-            key=scores.get
-        )
-
-
-        if scores[best]==0:
-            return "General Analysis"
-
-
-        return best
 
 
 
@@ -526,14 +289,41 @@ class ProjectLevelChunker:
 
 
 
-        domain=cls.infer_domain(
-            combined
-        )
+        # Domain / task classification now goes through the shared weighted
+        # ontology engine (domain_classifier / task_classifier), which
+        # supports multi-word phrases and negative-vote disambiguation --
+        # not the old single-word rule dicts. classify_*_full also returns
+        # every category that scored above zero, ranked descending, so a
+        # project doesn't get forced into a single bucket when it
+        # legitimately spans more than one domain (e.g. a wearable ECG
+        # project is both "Healthcare & Biomedical AI" and
+        # "Internet of Things & Embedded Systems").
+
+        domain, domain_ranked = classify_project_domain_full(combined)
+
+        task, task_ranked = classify_project_task_full(combined)
 
 
-        task=cls.infer_task(
-            combined
-        )
+        domain_scores = [
+            {"domain": name, "score": round(score, 2)}
+            for name, score in domain_ranked
+        ]
+
+
+        task_scores = [
+            {"task": name, "score": round(score, 2)}
+            for name, score in task_ranked
+        ]
+
+
+        # Secondary domains/tasks (everything after the top pick) get
+        # folded into the embedding text so semantic search can still
+        # surface a project under a related domain even when it isn't the
+        # single strongest one.
+
+        secondary_domains = [name for name, _ in domain_ranked[1:]]
+
+        secondary_tasks = [name for name, _ in task_ranked[1:]]
 
 
         keywords=cls.extract_keywords(
@@ -547,8 +337,14 @@ class ProjectLevelChunker:
 PROJECT DOMAIN:
 {domain}
 
+SECONDARY DOMAINS:
+{", ".join(secondary_domains) if secondary_domains else "None"}
+
 AI TASK:
 {task}
+
+SECONDARY TASKS:
+{", ".join(secondary_tasks) if secondary_tasks else "None"}
 
 PROJECT TITLE:
 {project_title}
@@ -583,6 +379,10 @@ neural networks
             "domain":domain,
 
             "task":task,
+
+            "domain_scores":domain_scores,
+
+            "task_scores":task_scores,
 
             "abstract":abstract,
 

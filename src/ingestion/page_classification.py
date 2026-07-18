@@ -15,8 +15,6 @@ from .domain_classifier import classify_project_domain
 
 class DocumentPageClassifier:
 
-    # Anchor Header Regular Expressions
-
     TOC_TITLE = re.compile(
         r"^\s*(contents|table\s+of\s+contents|table\s+contents|index)\s*:?\s*$",
         re.IGNORECASE
@@ -53,12 +51,20 @@ class DocumentPageClassifier:
     )
 
     ABSTRACT = re.compile(
-        r"^\s*(abstract|executive\s+summary|project\s+summary|summary|synopsis)\s*:?\s*$",
+        r"^\s*"
+        r"(?:\d+[\.\)]?\s*)?"
+        r"(abstract(?:\s+of\s+the\s+project)?"
+        r"|project\s+abstract"
+        r"|executive\s+summary"
+        r"|project\s+summary"
+        r"|summary"
+        r"|synopsis"
+        r"|a\s+brief\s+summary)"
+        r"\s*:?\s*$",
         re.IGNORECASE
     )
 
 
-    # Leader dots pattern for multi-page TOC tracking
     TOC_ENTRY = re.compile(
         r"\.{2,}\s*[a-zA-Z0-9_-]+\s*$"
     )
@@ -128,8 +134,6 @@ class DocumentPageClassifier:
             )
 
 
-            # --- PHASE 1: HARD DETERMINISTIC OVERRIDES (Pages 1 & 2) ---
-
             if page_num in [1, 2]:
 
                 page["page_type"] = "cover"
@@ -140,8 +144,6 @@ class DocumentPageClassifier:
 
 
 
-            # --- PHASE 2: EXPLICIT HEADER INTERCEPTS ---
-
             matched_state = None
 
 
@@ -149,6 +151,7 @@ class DocumentPageClassifier:
                 DocumentPageClassifier.TOC_TITLE.match(line)
                 for line in top_lines
             ):
+
                 matched_state = "toc"
 
 
@@ -156,6 +159,7 @@ class DocumentPageClassifier:
                 DocumentPageClassifier.FIGURES_TITLE.match(line)
                 for line in top_lines
             ):
+
                 matched_state = "list_of_figures"
 
 
@@ -163,6 +167,7 @@ class DocumentPageClassifier:
                 DocumentPageClassifier.TABLES_TITLE.match(line)
                 for line in top_lines
             ):
+
                 matched_state = "list_of_tables"
 
 
@@ -170,20 +175,56 @@ class DocumentPageClassifier:
                 DocumentPageClassifier.ABBR_TITLE.match(line)
                 for line in top_lines
             ):
+
                 matched_state = "list_of_abbreviations"
 
 
             elif any(
                 DocumentPageClassifier.ABSTRACT.search(line)
-                for line in top_lines
+                for line in raw_top_lines[:30]
             ):
+
                 matched_state = "abstract"
+
+
+            elif (
+                page_num <= 8
+                and current_sequence_state in [
+                    "cover",
+                    "approval",
+                    "acknowledgement",
+                ]
+            ):
+
+                page_text = " ".join(
+                    raw_top_lines
+                ).lower()
+
+                abstract_keywords = [
+                    "this project",
+                    "this study",
+                    "proposed system",
+                    "the proposed",
+                    "aims to",
+                    "objective of this",
+                    "we propose",
+                ]
+
+                abstract_hits = sum(
+                    1
+                    for keyword in abstract_keywords
+                    if keyword in page_text
+                )
+
+                if abstract_hits >= 2:
+                    matched_state = "abstract"
 
 
             elif any(
                 DocumentPageClassifier.ACKNOWLEDGEMENT.match(line)
                 for line in top_lines
             ):
+
                 matched_state = "acknowledgement"
 
 
@@ -191,6 +232,7 @@ class DocumentPageClassifier:
                 DocumentPageClassifier.APPROVAL.search(line)
                 for line in top_lines
             ):
+
                 matched_state = "approval"
 
 
@@ -198,6 +240,7 @@ class DocumentPageClassifier:
                 DocumentPageClassifier.COPYRIGHT.search(line)
                 for line in top_lines
             ):
+
                 matched_state = "copyright"
 
 
@@ -205,11 +248,10 @@ class DocumentPageClassifier:
                 DocumentPageClassifier._matches_chapter_start(line)
                 for line in raw_top_lines
             ):
+
                 matched_state = "content"
 
 
-
-            # --- PHASE 3: STATEFUL CONTEXT ENGINE ---
 
             if matched_state:
 
@@ -308,4 +350,4 @@ def process_document_and_classify_domain(pages: list) -> tuple[list, str]:
     )
 
 
-    return classified_pages, assigned_domain
+    return classified_pages, assigned_domain    
