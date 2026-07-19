@@ -1,15 +1,69 @@
 @import "tailwindcss";
 
 @theme {
-  --color-navy: #123262;
-  --color-navy-dark: #0a1f42;
-  --color-maroon: #7a1f2b;
-  --color-orange: #e67f5a;
-  --color-orange-dark: #c94f29;
-  --font-display: "Lora", serif;
-  --color-ink: #1c232e;
-}
-body {
-  font-family: "Inter", system-ui, sans-serif;
+  /* Surfaces - Light Theme (2026-07-17) */
+  --color-surface-canvas: #FFFFFF;
+  --color-surface-raised: #F6F8FA;
+  --color-surface-overlay: #FFFFFF;
+  --color-surface-hover: #EEF1F4;
+  --color-surface-sunken: #F1F3F5;
+
+  /* Borders */
+  --color-border-subtle: #E4E7EB;
+  --color-border-default: #D0D5DC;
+  --color-border-strong: #7C8695;
+
+  /* Text Colors */
+  --color-text-primary: #14181F;
+  --color-text-secondary: #55606E;
+  --color-text-tertiary: #8A93A1;
+  --color-text-inverse: #FFFFFF;
+
+  /* Accents */
+  --color-accent-primary: #1D4ED8;
+  --color-accent-primary-hover: #1E40AF;
+  --color-accent-violet: #7C3AED;
+  --color-accent-gold: #B08D3E;
+
+  /* Semantic Statuses */
+  --color-success-emerald: #15803D;
+  --color-warning-amber: #B45309;
+  --color-error-red: #DC2626;
+  --color-info-blue: #1D4ED8;
+
+  /* Typography Families */
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  /* Border Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
 }
 
+/* Base Body Styles */
+body {
+  background-color: var(--color-surface-canvas);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar for light theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-surface-canvas);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-default);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-strong);
+}
