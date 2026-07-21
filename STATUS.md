@@ -9,7 +9,7 @@
 - 🟡 Build the UI, but data must come from an explicit mock/fixture clearly marked `// MOCK — see STATUS.md`, not invented as if it were real. Do not write frontend code that assumes an endpoint shape that doesn't exist yet — check `docs/backend/actions.md` first, and if the endpoint isn't documented there, stop and ask rather than guessing the contract.
 - 🔴 Do not build. Propose the backend work first, or skip the chapter entirely for this session.
 
-**Last updated:** 2026-07-16
+**Last updated:** 2026-07-21
 
 ---
 
@@ -17,61 +17,49 @@
 
 | App | Models | Migrations | Serializers | Views | URLs | Notes |
 |---|---|---|---|---|---|---|
-| `accounts` | ✅ | ✅ | ✅ | ✅ | ✅ | Google OAuth, domain-restricted. User model has a `role` field with choices: `student`, `faculty`, and `admin` (default: `student`). |
+| `accounts` | ✅ | ✅ | ✅ | ✅ | ✅ | Google OAuth, domain-restricted. Custom User model (`email` PK, `role`), plus `Person` model for linking student/faculty academic records. |
 | `core` | — | — | — | ✅ | — | Shared response (`responses.py`) and exception (`exceptions.py`) envelopes are fully implemented and registered globally in settings. |
-| `repository` | 🔴 stub | — | ❌ | 🔴 stub | ❌ | No serializers or URLs yet. This backs Browse/Search/Project Details. |
-| `ingestion` | 🔴 stub | — | ❌ | 🔴 stub | ❌ | No serializers or URLs yet. This backs Upload/Pipeline/Approvals. |
+| `repository` | ✅ | ✅ | ✅ | ✅ | ✅ | `Project`, `ProjectSection`, `ProjectPerson`, `Department`, `Campus`, `ResearchGroup`, `Tag` models and migrations implemented. |
+| `ingestion` | ✅ | ✅ | ✅ | ✅ | ✅ | `IngestionJob`, `IngestionJobLog` models, modular 7-step extraction pipeline engine, Celery + Redis background task, DRF API endpoints (`/api/ingestion/jobs/`, `/api/ingestion/jobs/{id}/publish/`). |
 
 ## 2. Frontend
 
 | Area | Status | Notes |
 |---|---|---|
-| `AuthContext.jsx` | ✅ | Session/role read from backend session, per §22. |
+| `AuthContext.jsx` | ✅ | Session/role read from backend session, with developer role switching (`?mockRole=`). |
 | `GoogleLoginButton.jsx` | ✅ | |
 | `Landing.jsx` | ✅ | |
-| `Dashboard.jsx` | 🟡 | Exists but is a placeholder — not yet the role-branched `GeneralDashboard`/`AdminDashboard` split from §3.3, §14–15. |
-| Route guards (`RequireAdmin`, §3.3) | 🔴 | Not implemented — layout architecture and routing guards needed (role is available). |
-| Design tokens (Tailwind config, §7–10) | 🔴 | No token setup yet — colors/spacing/type scale from DESIGN.md not wired into `index.css`/`tailwind.config`. |
-| Component library (§13: `ProjectCard`, `SearchBar`, `Badge`, etc.) | 🔴 | None built yet. |
+| `Dashboard.jsx` | 🟢 | Implemented layout shell, role-aware sidebar navigation, and project view dashboard composition. |
+| Route guards (`RequireAdmin`, §3.3) | 🟢 | Implemented. |
+| Design tokens (§7–10) | 🟢 | Light-theme CSS variables and tokens configured per DESIGN.md specifications. |
+| Component library (§13) | 🟢 | `ProjectCard`, `SearchBar`, `Badge`, `Sidebar`, `Navbar`, `StatCard`, etc. built. |
 
 ## 3. DESIGN.md Chapter → Status
 
 | Chapter | Depends on | Status | Can an agent build this now? |
 |---|---|---|---|
-| 1–10 (Philosophy, Identity, Roles, Principles, Visual Language, Color, Type, Grid, Icons) | — | 🟡 reference only | These are *rules*, not pages — always "in scope" as constraints, but §7–10 tokens should be set up once, early, before any page work (see below). |
-| 11 Layout Architecture | tokens | 🔴 | No — needs design tokens and routing setup first (role is available). |
-| 12 Navigation by Role | layout | 🔴 | No — needs layout architecture first. |
-| 13 Component Library | tokens | 🔴 | No — but this is good next-step work once tokens exist; everything else depends on it. |
-| 14 Dashboard (General) | `repository` API, `role` | 🔴 | No — mock data only, clearly marked. |
-| 15 Dashboard (Admin) | `repository`, `ingestion` APIs, `role` | 🔴 | No. |
-| 16 Browse Projects | `repository` API | 🔴 | No. |
-| 17 Project Details | `repository` API | 🔴 | No. |
-| 18 Semantic Search | `repository` API + vector index | 🔴 | No. |
-| 19 AI Assistant (RAG) | ingestion + vector store + LLM integration | 🔴 | No — largest lift, build last. |
-| 20 Upload & Ingestion | `ingestion` API | 🔴 | No. |
-| 21 Pending Approvals / Repo Mgmt | `repository`, `ingestion` APIs | 🔴 | No. |
-| 22 Authentication | `accounts` | 🟢 | **Yes — already built.** |
-| 23 Profile & Settings | `accounts`, `role` | 🟡 | Partially — profile basics could be built against `accounts` now; settings persistence needs more backend. |
-| 24 Accessibility | — | 🟢 | Applies to whatever is being built at any time. |
-| 25 Responsive Design | — | 🟢 | Same — apply as you go. |
-| 26 Motion Guidelines | — | 🟢 | Same. |
-| 27–29 (Agent Rules, Do's/Don'ts, Future Expansion) | — | 🟢 | Always active constraints, not features to "build." |
+| 1–10 (Philosophy, Identity, Roles, Principles, Visual Language, Color, Type, Grid, Icons) | — | 🟢 active | Applied across light-theme design system tokens and layout components. |
+| 11 Layout Architecture | tokens | 🟢 | **Yes — built.** Navbar, role-aware sidebar, and layout shell implemented. |
+| 12 Navigation by Role | layout | 🟢 | **Yes — built.** Role-specific navigation arrays for general users and admins. |
+| 13 Component Library | tokens | 🟢 | **Yes — built.** `ProjectCard`, `SearchBar`, `Badge`, `StatCard`, `EmptyState`, etc. |
+| 14 Dashboard (General) | `repository` API, `role` | 🟢 | **Yes — built.** General dashboard with search, metrics, and project cards. |
+| 15 Dashboard (Admin) | `repository`, `ingestion` APIs, `role` | 🟢 | **Yes — built.** Admin dashboard with ingestion job tracking and operations. |
+| 16 Browse Projects | `repository` API | 🟢 | **Yes — built.** Browse, category tags, search filters, and detail drawer. |
+| 17 Project Details | `repository` API | 🟢 | **Yes — built.** Metadata table, abstract, section structure, and author info. |
+| 18 Semantic Search | `repository` API + vector index | 🟡 | Keyword search live; vector embedding indexing in progress. |
+| 19 AI Assistant (RAG) | ingestion + vector store + LLM | 🔴 | Next phase. |
+| 20 Upload & Ingestion | `ingestion` API | 🟢 | **Yes — backend API & background pipeline complete.** (`/api/ingestion/jobs/`). |
+| 21 Pending Approvals / Repo Mgmt | `repository`, `ingestion` APIs | 🟢 | **Yes — built.** Ingestion job review, patching, and publish endpoints live. |
+| 22 Authentication | `accounts` | 🟢 | **Yes — built.** |
+| 23 Profile & Settings | `accounts`, `role` | 🟡 | Profile display active; settings expansion next. |
+| 24 Accessibility | — | 🟢 | Applies to all built components (contrast, Lucide icons, keyboard nav). |
+| 25 Responsive Design | — | 🟢 | Applied across layout shell and mobile breakpoints. |
+| 26 Motion Guidelines | — | 🟢 | Applied (150-250ms transitions, no heavy blur). |
+| 27–29 (Agent Rules, Do's/Don'ts, Future Expansion) | — | 🟢 | Active constraints. |
 
 ---
 
-## 4. Suggested build order
-
-1. ~~Confirm/add `role` field on `accounts.User` (or equivalent)~~ (Done: `role` field exists in `accounts` User model).
-2. Wire Tailwind tokens from §7–10 into `index.css` (Tailwind v4 theme config) — unblocks all visual work.
-3. Build `repository` app: models → serializers → views → URLs for read-only project listing/detail (unblocks §16, §17).
-4. Build component library (§13) against real token + real `repository` data.
-5. Build `GeneralDashboard` (§14), then `AdminDashboard` (§15) once `ingestion` exists.
-6. `ingestion` app (§20) and approvals (§21).
-7. Semantic search (§18) and RAG assistant (§19) last — highest complexity, most external dependencies (embeddings, vector DB, LLM).
-
----
-
-## 5. Maintenance
+## 4. Maintenance
 
 Update this file whenever:
 - A backend app gains models/serializers/views/URLs.
@@ -79,4 +67,3 @@ Update this file whenever:
 - A new dependency is discovered (e.g., vector DB choice for §18).
 
 Keep this file and DESIGN.md both at the repo root so an agent reads both before touching frontend code.
-
