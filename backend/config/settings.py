@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     "accounts",
     "core",
     "repository",
+    "organization",
     "ingestion",
     'rest_framework_simplejwt',
 ]

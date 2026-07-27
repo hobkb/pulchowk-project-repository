@@ -4,13 +4,7 @@ from ingestion.models import IngestionJob, IngestionJobLog
 
 
 class IngestionJobCreateSerializer(serializers.ModelSerializer):
-<<<<<<< Updated upstream
-    classroom_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
-    class Meta:
-        model = IngestionJob
-        fields = ["id", "file", "classroom_id"]
-=======
     # classroom_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class Meta:
@@ -18,7 +12,6 @@ class IngestionJobCreateSerializer(serializers.ModelSerializer):
         fields = [ "file",
                   #"classroom_id"
                 ]
->>>>>>> Stashed changes
 
     def validate_file(self, value):
         if not value.name.lower().endswith(".pdf"):
@@ -40,11 +33,8 @@ class IngestionJobReadSerializer(serializers.ModelSerializer):
             "original_filename",
             "uploaded_by",
             "uploaded_by_email",
-<<<<<<< Updated upstream
-            "classroom_id",
-=======
            # "classroom_id",
->>>>>>> Stashed changes
+
             "status",
             "file_hash",
             "extracted_payload",
@@ -55,17 +45,49 @@ class IngestionJobReadSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+class ProjectFieldsSerializer(serializers.Serializer):
+    title = serializers.CharField(required=False)
+    abstract = serializers.CharField(required=False, allow_blank=True)
+    project_type = serializers.CharField(required=False)
+    academic_level = serializers.CharField(required=False)
+    batch = serializers.IntegerField(required=False, allow_null=True)
+    repository_url = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+    
+class ProjectSectionSerializer(serializers.Serializer):
+    display_order = serializers.IntegerField()
+    heading = serializers.CharField(required=False)
+    canonical_section = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+    )
+    heading_level = serializers.IntegerField(required=False)
+    content = serializers.CharField(required=False, allow_blank=True)
+    page_start = serializers.IntegerField(required=False, allow_null=True)
+    page_end = serializers.IntegerField(required=False, allow_null=True)
+    word_count = serializers.IntegerField(required=False)
+
+
 
 class IngestionJobUpdatePayloadSerializer(serializers.Serializer):
-    extracted_payload = serializers.JSONField(required=True)
-
+    project_fields = ProjectFieldsSerializer(required=False)
+    project_sections = ProjectSectionSerializer(
+        many=True,
+        required=False,
+    )
 
 class IngestionJobLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = IngestionJobLog
-<<<<<<< Updated upstream
-        fields = ["id", "level", "message", "created_at"]
-=======
-        fields = ["level", "message", "created_at"]
->>>>>>> Stashed changes
+        fields = [
+            "level",
+            "message",
+            "created_at",
+        ]
         read_only_fields = fields
+
+

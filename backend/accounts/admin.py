@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
+from .models import Person
 
 
 # Register your models here.
@@ -45,3 +46,7 @@ class CustomUserAdmin(UserAdmin):
     )
 
     search_fields = ("email", "first_name", "last_name")
+
+@admin.register(Person)
+class PersonAdmin(admin.ModelAdmin):
+    pass

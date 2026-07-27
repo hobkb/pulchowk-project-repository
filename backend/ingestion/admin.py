@@ -11,16 +11,57 @@ class IngestionJobLogInline(admin.TabularInline):
 
 @admin.register(IngestionJob)
 class IngestionJobAdmin(admin.ModelAdmin):
-    list_display = ["id", "original_filename", "uploaded_by", "status", "classroom_id", "file_hash", "created_at"]
+    list_display = [
+        "id",
+        "original_filename",
+        "uploaded_by",
+        "status",
+        "file_hash",
+        "created_at"
+    ]
+
     list_filter = ["status", "created_at"]
-    search_fields = ["id", "original_filename", "uploaded_by__email", "file_hash", "classroom_id"]
-    readonly_fields = ["id", "created_at", "updated_at"]
+
+    search_fields = [
+        "id",
+        "original_filename",
+        "uploaded_by__email",
+        "file_hash"
+    ]
+
+    readonly_fields = [
+        "id",
+        "created_at",
+        "updated_at"
+    ]
+
     inlines = [IngestionJobLogInline]
 
 
 @admin.register(IngestionJobLog)
 class IngestionJobLogAdmin(admin.ModelAdmin):
-    list_display = ["id", "job", "level", "message", "created_at"]
-    list_filter = ["level", "created_at"]
-    search_fields = ["job__id", "message"]
-    readonly_fields = ["id", "job", "level", "message", "created_at"]
+    list_display = [
+        "id",
+        "job",
+        "level",
+        "message",
+        "created_at"
+    ]
+
+    list_filter = [
+        "level",
+        "created_at"
+    ]
+
+    search_fields = [
+        "job__id",
+        "message"
+    ]
+
+    readonly_fields = [
+        "id",
+        "job",
+        "level",
+        "message",
+        "created_at"
+    ]
