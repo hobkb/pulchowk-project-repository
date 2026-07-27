@@ -1,4 +1,4 @@
-import uuid
+
 from django.db import models
 from django.conf import settings
 
@@ -12,7 +12,7 @@ class IngestionJob(models.Model):
         FAILED = "FAILED", "Failed"
         VERIFIED = "VERIFIED", "Verified"
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
     file = models.FileField(upload_to="ingestion_pdfs/")
     original_filename = models.CharField(max_length=255, blank=True)
     uploaded_by = models.ForeignKey(
@@ -20,7 +20,8 @@ class IngestionJob(models.Model):
         on_delete=models.CASCADE,
         related_name="ingestion_jobs"
     )
-    classroom_id = models.CharField(max_length=100, blank=True, null=True, db_index=True)
+    # later use it for classroom uploads
+    # classroom_id = models.CharField(max_length=100, blank=True, null=True, db_index=True)
     status = models.CharField(
         max_length=30,
         choices=Status.choices,
@@ -49,7 +50,7 @@ class IngestionJob(models.Model):
 
 
 class IngestionJobLog(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+   
     job = models.ForeignKey(
         IngestionJob,
         on_delete=models.CASCADE,

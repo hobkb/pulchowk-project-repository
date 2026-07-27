@@ -2,18 +2,27 @@ import uuid
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from .managers import UserManager
-
+from organization.models import Department, ResearchGroup
 
 class UserRole(models.TextChoices):
     STUDENT = "student", "Student"
     FACULTY = "faculty", "Faculty"
     ADMIN = "admin", "Admin"
+    
+    """
+    later make this this 
+    STUDENT = "student", "Student"
+    FACULTY = "faculty", "Faculty"
+    """
+    
 
-
+# this model will be changed and not have email 
 class User(AbstractUser):
     username = None
 
     email = models.EmailField(unique=True)
+
+    #person = models.OneToOneField(Person,on_delete=models.CASCADE, null=True, blank=True)
 
     role = models.CharField(
         max_length=20,
@@ -36,26 +45,69 @@ class User(AbstractUser):
         return self.email
 
 
+
 class Person(models.Model):
-    ACADEMIC_LEVELS = [
-        ("UG", "UG"),
-        ("Masters", "Masters"),
-        ("PhD", "PhD"),
-        ("Faculty", "Faculty"),
-        ("External", "External"),
-    ]
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
     full_name = models.CharField(max_length=255)
-    email = models.EmailField(max_length=255, blank=True, null=True)
-    academic_level = models.CharField(max_length=20, choices=ACADEMIC_LEVELS)
-    identifier = models.CharField(max_length=100, blank=True, null=True)
-    designation = models.CharField(max_length=150, blank=True, null=True)
-    is_claimed = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+
+    email = models.EmailField(
+        unique=True
+    )
+
+    department = models.ForeignKey(
+        Department,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
 
     class Meta:
-        db_table = "persons"
-
+        db_table="persons"
+        
     def __str__(self):
-        return self.full_name
+            return self.full_name
+    
+    
+class Student(Person):
+    
+    ACADEMIC_LEVELS = [
+            ("UG", "UG"),
+            ("Masters", "Masters"),
+            ("PhD", "PhD"),
+        ]
+   
+    academic_level = models.CharField(max_length=20, choices=ACADEMIC_LEVELS)
+    roll_number = models.CharField(
+        max_length=30,
+        unique=True,
+    )
+    
+class Faculty(Person):
+
+    title = models.CharField(
+        max_length=50,
+        blank=True,
+    )
+        
+    designation = models.CharField(
+        max_length=100,
+        blank=True,
+    )
+    # if faculty belong to many then this can be ManyToManyField
+    research_group = models.ForeignKey(ResearchGroup, 
+                                       null=True,
+                                       blank=True,
+                                       on_delete=models.SET_NULL)
+    
+
+class External(Person):
+
+    organization = models.CharField(
+        max_length=255,
+        blank=True
+    )
+
+    designation = models.CharField(
+        max_length=100,
+        blank=True
+    )

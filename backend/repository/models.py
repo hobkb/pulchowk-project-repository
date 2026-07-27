@@ -1,52 +1,7 @@
-import uuid
+
 from django.db import models
 from django.conf import settings
-
-
-class Campus(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=100, unique=True)
-    location = models.CharField(max_length=255)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "campuses"
-
-    def __str__(self):
-        return self.name
-
-
-class Department(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    campus = models.ForeignKey(Campus, on_delete=models.CASCADE, related_name="departments")
-    name = models.CharField(max_length=100)
-    code = models.CharField(max_length=20)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "departments"
-        unique_together = ("campus", "code")
-
-    def __str__(self):
-        return f"{self.name} ({self.code})"
-
-
-class ResearchGroup(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name="research_groups")
-    name = models.CharField(max_length=150)
-    description = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "research_groups"
-
-    def __str__(self):
-        return self.name
-
+from organization.models import Department, ResearchGroup
 
 class Project(models.Model):
     PROJECT_TYPES = [
@@ -65,11 +20,11 @@ class Project(models.Model):
     STATUS_CHOICES = [
         ("Processing", "Processing"),
         ("Review Required", "Review Required"),
-        ("Ready", "Ready"),
+        ("Published", "Published"),
         ("Archived", "Archived"),
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
     title = models.TextField()
     abstract = models.TextField()
     description = models.TextField(blank=True, null=True)
@@ -78,17 +33,17 @@ class Project(models.Model):
     batch = models.CharField(max_length=20, blank=True, null=True)
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default="Processing")
     language = models.CharField(max_length=50, default="English")
-    thumbnail_url = models.TextField(blank=True, null=True)
-    github_url = models.TextField(blank=True, null=True)
-    doi_url = models.TextField(blank=True, null=True)
-    publication_url = models.TextField(blank=True, null=True)
-    demo_url = models.TextField(blank=True, null=True)
+    thumbnail = models.ImageField(upload_to="thumbnails/",blank=True,null=True,)
+    github_url = models.URLField(blank=True)
+    doi_url = models.URLField(blank=True)
+    publication_url = models.URLField(blank=True)
+    demo_url = models.URLField(blank=True)
     submitted_at = models.DateTimeField(blank=True, null=True)
     approved_at = models.DateTimeField(blank=True, null=True)
-    department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name="projects", null=True, blank=True)
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name="projects")
     research_group = models.ForeignKey(ResearchGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name="projects")
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="created_projects")
-    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="approved_projects")
+    extraction_verified_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="verified_projects")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -108,11 +63,10 @@ class ProjectAsset(models.Model):
         ("Source Code", "Source Code"),
         ("Supplementary", "Supplementary"),
     ]
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+  
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="assets")
     asset_type = models.CharField(max_length=30, choices=ASSET_TYPES)
-    file_name = models.CharField(max_length=255)
-    storage_path = models.TextField()
+    file = models.FileField(upload_to="projects/")
     mime_type = models.CharField(max_length=100)
     file_size = models.BigIntegerField()
     uploaded_at = models.DateTimeField(auto_now_add=True)
@@ -129,9 +83,9 @@ class ProjectPerson(models.Model):
         ("Faculty Author", "Faculty Author"),
         ("Industry Mentor", "Industry Mentor"),
     ]
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+   
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="project_people")
-    person = models.ForeignKey("accounts.Person", on_delete=models.CASCADE, related_name="project_people", null=True, blank=True)
+    person = models.ForeignKey("accounts.Person", on_delete=models.CASCADE, related_name="project_people")
     role = models.CharField(max_length=30, choices=ROLE_CHOICES)
     display_order = models.IntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
@@ -139,10 +93,16 @@ class ProjectPerson(models.Model):
     class Meta:
         db_table = "project_people"
         ordering = ["display_order"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "person", "role"],
+                name="unique_project_person_role",
+            )
+        ]
 
 
 class ProjectSection(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="sections")
     heading = models.CharField(max_length=255)
     canonical_section = models.CharField(max_length=100, blank=True, null=True)
@@ -161,7 +121,7 @@ class ProjectSection(models.Model):
 
 
 class Keyword(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
     name = models.CharField(max_length=100, unique=True)
 
     class Meta:
@@ -174,15 +134,18 @@ class ProjectKeyword(models.Model):
 
     class Meta:
         db_table = "project_keywords"
-        unique_together = ("project", "keyword")
+        constraints = [
+        models.UniqueConstraint(
+            fields=["project", "keyword"],
+            name="unique_project_keyword",
+            )
+        ]
 
 
 class Domain(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+ 
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "domains"
@@ -194,7 +157,12 @@ class ProjectDomain(models.Model):
 
     class Meta:
         db_table = "project_domains"
-        unique_together = ("project", "domain")
+        constraints = [
+                models.UniqueConstraint(
+                    fields=["project", "domain"],
+                    name="unique_project_domain",
+                    )
+                ]
 
 
 class Bookmark(models.Model):
@@ -204,4 +172,9 @@ class Bookmark(models.Model):
 
     class Meta:
         db_table = "bookmarks"
-        unique_together = ("user", "project")
+        constraints = [
+                models.UniqueConstraint(
+                    fields=["project", "user"],
+                    name="unique_project_bookmark",
+                    )
+                ]

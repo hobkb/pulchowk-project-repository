@@ -4,11 +4,21 @@ from ingestion.models import IngestionJob, IngestionJobLog
 
 
 class IngestionJobCreateSerializer(serializers.ModelSerializer):
+<<<<<<< Updated upstream
     classroom_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class Meta:
         model = IngestionJob
         fields = ["id", "file", "classroom_id"]
+=======
+    # classroom_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+    class Meta:
+        model = IngestionJob
+        fields = [ "file",
+                  #"classroom_id"
+                ]
+>>>>>>> Stashed changes
 
     def validate_file(self, value):
         if not value.name.lower().endswith(".pdf"):
@@ -30,7 +40,11 @@ class IngestionJobReadSerializer(serializers.ModelSerializer):
             "original_filename",
             "uploaded_by",
             "uploaded_by_email",
+<<<<<<< Updated upstream
             "classroom_id",
+=======
+           # "classroom_id",
+>>>>>>> Stashed changes
             "status",
             "file_hash",
             "extracted_payload",
@@ -49,5 +63,9 @@ class IngestionJobUpdatePayloadSerializer(serializers.Serializer):
 class IngestionJobLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = IngestionJobLog
+<<<<<<< Updated upstream
         fields = ["id", "level", "message", "created_at"]
+=======
+        fields = ["level", "message", "created_at"]
+>>>>>>> Stashed changes
         read_only_fields = fields
