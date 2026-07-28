@@ -46,17 +46,44 @@ class IngestionJobReadSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 class ProjectFieldsSerializer(serializers.Serializer):
-    title = serializers.CharField(required=False)
+    title = serializers.CharField(required=False, allow_blank=True)
     abstract = serializers.CharField(required=False, allow_blank=True)
-    project_type = serializers.CharField(required=False)
-    academic_level = serializers.CharField(required=False)
-    batch = serializers.IntegerField(required=False, allow_null=True)
+    description = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    project_type = serializers.CharField(required=False, allow_blank=True)
+    academic_level = serializers.CharField(required=False, allow_blank=True)
+    batch = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     repository_url = serializers.URLField(
         required=False,
         allow_blank=True,
         allow_null=True,
     )
-    
+    github_url = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+    doi_url = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+    publication_url = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+    demo_url = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+    language = serializers.CharField(required=False, allow_blank=True)
+    department_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    campus_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    research_group_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    supervisors = serializers.ListField(required=False, allow_empty=True)
+
+
 class ProjectSectionSerializer(serializers.Serializer):
     display_order = serializers.IntegerField()
     heading = serializers.CharField(required=False)
@@ -70,7 +97,20 @@ class ProjectSectionSerializer(serializers.Serializer):
     page_start = serializers.IntegerField(required=False, allow_null=True)
     page_end = serializers.IntegerField(required=False, allow_null=True)
     word_count = serializers.IntegerField(required=False)
+    children = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        allow_empty=True,
+    )
 
+
+class PersonRoleSerializer(serializers.Serializer):
+    full_name = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
+    role = serializers.CharField(required=False, allow_blank=True)
+    display_order = serializers.IntegerField(required=False, allow_null=True)
+    academic_level = serializers.CharField(required=False, allow_blank=True)
+    designation = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
 
 class IngestionJobUpdatePayloadSerializer(serializers.Serializer):
@@ -78,6 +118,32 @@ class IngestionJobUpdatePayloadSerializer(serializers.Serializer):
     project_sections = ProjectSectionSerializer(
         many=True,
         required=False,
+    )
+    people_and_roles = serializers.ListField(
+        child=PersonRoleSerializer(),
+        required=False,
+        allow_empty=True,
+    )
+    keywords = serializers.ListField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+        allow_empty=True,
+    )
+    references = serializers.ListField(
+        child=serializers.DictField(required=False),
+        required=False,
+        allow_empty=True,
+    )
+    appendices = serializers.ListField(
+        child=serializers.DictField(required=False),
+        required=False,
+        allow_empty=True,
+    )
+    document_metadata = serializers.DictField(required=False, allow_empty=True)
+    processing_warnings = serializers.ListField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+        allow_empty=True,
     )
 
 class IngestionJobLogSerializer(serializers.ModelSerializer):
@@ -89,5 +155,4 @@ class IngestionJobLogSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
-
 

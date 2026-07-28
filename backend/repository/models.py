@@ -104,6 +104,13 @@ class ProjectPerson(models.Model):
 class ProjectSection(models.Model):
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="sections")
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="children",
+    )
     heading = models.CharField(max_length=255)
     canonical_section = models.CharField(max_length=100, blank=True, null=True)
     heading_level = models.SmallIntegerField()
@@ -118,6 +125,17 @@ class ProjectSection(models.Model):
     class Meta:
         db_table = "project_sections"
         ordering = ["display_order"]
+
+
+class ProjectReference(models.Model):
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="references")
+    title = models.CharField(max_length=255, blank=True)
+    citation = models.TextField(blank=True)
+    url = models.URLField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "project_references"
 
 
 class Keyword(models.Model):

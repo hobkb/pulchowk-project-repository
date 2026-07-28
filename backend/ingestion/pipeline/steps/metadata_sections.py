@@ -65,8 +65,9 @@ class MetadataSectionsStep(BasePipelineStep):
     @classmethod
     def extract_project_sections(cls, pages):
         section_nodes = []
-        current = None
+        active_sections = []
         active_major_chapter = 0
+        in_back_matter = False
 
         ignored_page_types = {
             "abstract", "acknowledgement", "approval", "cover", "copyright",
@@ -79,35 +80,36 @@ class MetadataSectionsStep(BasePipelineStep):
             page_num = page.get("page_number", page.get("page_num", 1))
 
             if page_type in ignored_page_types:
-                if current is not None:
-                    current["page_end"] = page_num
-                    current["word_count"] = len(re.findall(r"\w+", current["content"]))
-                    section_nodes.append(current)
-                    current = None
+                active_sections = []
                 continue
 
             for line in page.get("lines", []):
                 text = normalize_line(line.get("text", ""))
                 if not text or TOC_ENTRY.search(text):
                     continue
+                if text.lower() == "references":
+                    active_sections = []
+                    in_back_matter = True
+                    continue
+                if in_back_matter:
+                    continue
 
                 heading_data = cls.parse_section_heading(line, active_major_chapter)
 
                 if heading_data:
-                    if current is not None:
-                        current["page_end"] = page_num
-                        current["word_count"] = len(re.findall(r"\w+", current["content"]))
-                        section_nodes.append(current)
-
                     order, title = heading_data
                     level = len(order.split("."))
 
                     if level == 1:
                         active_major_chapter = int(order.split(".")[0])
 
+                    while active_sections and active_sections[-1]["heading_level"] >= level:
+                        active_sections.pop()
+
+                    parent = active_sections[-1] if active_sections else None
                     current = {
                         "heading": f"{order} {title}",
-                        "canonical_section": canonicalize_heading(title, parent_canonical=None),
+                        "canonical_section": canonicalize_heading(title),
                         "heading_level": level,
                         "display_order": len(section_nodes) + 1,
                         "page_start": page_num,
@@ -115,37 +117,24 @@ class MetadataSectionsStep(BasePipelineStep):
                         "content": "",
                         "children": [],
                     }
+                    if parent is not None:
+                        parent["children"].append(current)
+                    section_nodes.append(current)
+                    active_sections.append(current)
                     continue
 
-                if current is not None:
+                if active_sections:
+                    current = active_sections[-1]
                     if current["content"]:
                         current["content"] += "\n"
                     current["content"] += text
+                    for section in active_sections:
+                        section["page_end"] = page_num
 
-        if current is not None:
-            current["page_end"] = pages[-1].get("page_number", pages[-1].get("page_num", 1)) if pages else 1
-            current["word_count"] = len(re.findall(r"\w+", current["content"]))
-            section_nodes.append(current)
-
-        root_sections = []
-        stack = []
         for section in section_nodes:
-            level = section["heading_level"]
-            while stack and stack[-1]["heading_level"] >= level:
-                stack.pop()
+            section["word_count"] = len(re.findall(r"\w+", section["content"]))
 
-            parent = stack[-1] if stack else None
-
-            if parent and section["canonical_section"] == re.sub(r"^\d+(?:\.\d+)*\s*", "", section["heading"]).strip():
-                section["canonical_section"] = parent["canonical_section"]
-
-            if parent is None:
-                root_sections.append(section)
-            else:
-                parent["children"].append(section)
-            stack.append(section)
-
-        return root_sections or section_nodes
+        return [section for section in section_nodes if section["heading_level"] == 1]
 
     @staticmethod
     def extract_back_matter(pages):
@@ -182,6 +171,13 @@ class MetadataSectionsStep(BasePipelineStep):
         draft = context.get("draft_metadata", {})
         draft["project_sections"] = sections
         draft["back_matter"] = back_matter
+        references = back_matter["references"]
+        draft["references"] = (
+            [{"title": "References", "citation": references["content"]}]
+            if references["content"]
+            else []
+        )
+        draft["appendices"] = back_matter["appendices"]
 
         processing_time_ms = int(round((time.perf_counter() - start_time) * 1000))
         draft["document_metadata"] = {
