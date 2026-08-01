@@ -46,9 +46,16 @@ class DocumentPageClassifier:
         r"\s*:?\s*$",
         re.IGNORECASE
     )
-    TOC_ENTRY = re.compile(r"\.{2,}\s*[a-zA-Z0-9_-]+\s*$")
+    TOC_ENTRY = re.compile(r"\.{2,}\s*(?:[ivxlcdm]+|\d+|[a-z])?\s*$", re.IGNORECASE)
     CHAPTER_START = re.compile(
         r"^(?:chapter\s+([ivxlcdm\d]+)\b[\s.:\-]*(.*)|(\d+)\s+(.+)|(introduction)\s*(.*))$",
+        re.IGNORECASE,
+    )
+    MAJOR_CONTENT_TITLE = re.compile(
+        r"^\s*(?:background|literature review|methodology|experiments?"
+        r"|system design|implementation|results?(?: and discussion)?|evaluation"
+        r"|discussion|conclusions?|recommendations|future work"
+        r"|future enhancements?|future improvements?)\s*:?\s*$",
         re.IGNORECASE,
     )
 
@@ -124,6 +131,8 @@ class DocumentPageClassifier:
                 matched_state = "copyright"
             elif any(DocumentPageClassifier._matches_chapter_start(line) for line in raw_top_lines):
                 matched_state = "content"
+            elif any(DocumentPageClassifier.MAJOR_CONTENT_TITLE.match(line) for line in raw_top_lines):
+                matched_state = "content"
 
             if matched_state:
                 current_sequence_state = matched_state
@@ -131,10 +140,8 @@ class DocumentPageClassifier:
                 if current_sequence_state == "cover" and page_num == 2:
                     current_sequence_state = "approval"
                 elif current_sequence_state in ["toc", "list_of_figures", "list_of_tables", "list_of_abbreviations"]:
-                    if has_toc_lines >= 2:
+                    if has_toc_lines:
                         pass
-                    elif page_num >= 12:
-                        current_sequence_state = "content"
 
             page["page_type"] = current_sequence_state
             classified.append(page)

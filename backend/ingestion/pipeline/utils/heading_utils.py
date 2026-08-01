@@ -13,7 +13,7 @@ _LOWERCASE_STOPWORDS = {
 _TOC_LEADER_DOTS = re.compile(r"\.{2,}\s*\d*\s*$")
 
 
-def looks_like_heading(title_text: str, max_words: int = 12) -> bool:
+def looks_like_heading(title_text: str, max_words: int = 8) -> bool:
     """
     True if `title_text` (the part of a line after a leading chapter/section
     number) plausibly reads like a heading rather than a sentence of body

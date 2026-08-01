@@ -6,7 +6,6 @@ from ingestion.models import IngestionJob, IngestionJobLog
 class IngestionJobCreateSerializer(serializers.ModelSerializer):
 
     # classroom_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-
     class Meta:
         model = IngestionJob
         fields = [ "file",
@@ -16,7 +15,7 @@ class IngestionJobCreateSerializer(serializers.ModelSerializer):
     def validate_file(self, value):
         if not value.name.lower().endswith(".pdf"):
             raise serializers.ValidationError("Only PDF files are allowed.")
-        max_mb = getattr(settings, "INGESTION_MAX_UPLOAD_MB", 25)
+        max_mb = getattr(settings, "INGESTION_MAX_UPLOAD_MB", 100)
         if value.size > max_mb * 1024 * 1024:
             raise serializers.ValidationError(f"File size exceeds maximum allowed size of {max_mb} MB.")
         return value
