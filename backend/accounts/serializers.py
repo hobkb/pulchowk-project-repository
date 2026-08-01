@@ -1,5 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from .models import Student
+from .services import ProfileService
 
 
 User = get_user_model()
@@ -14,7 +16,9 @@ class UserSerializer(serializers.ModelSerializer):
 
     Passwords and internal authentication fields are intentionally omitted.
     """
-  
+    is_onboarded = serializers.SerializerMethodField()
+    inferred_role = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = (
@@ -23,8 +27,17 @@ class UserSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "role",
+            "person",
+            "is_onboarded",
+            "inferred_role",
         )        
         read_only_fields = fields
+
+    def get_is_onboarded(self, obj) -> bool:
+        return obj.person_id is not None
+
+    def get_inferred_role(self, obj) -> str:
+        return ProfileService.infer_role_from_email(obj.email)
         
 
 class GoogleLoginSerializer(serializers.Serializer):
@@ -42,3 +55,25 @@ class GoogleLoginSerializer(serializers.Serializer):
     id_token = serializers.CharField(required = True,
                                      allow_blank=True,
                                      trim_whitespace=True)
+
+
+class StudentOnboardingSerializer(serializers.Serializer):
+    """
+    Serializer for student onboarding profile completion.
+    """
+    full_name = serializers.CharField(max_length=255)
+    academic_level = serializers.ChoiceField(choices=Student.ACADEMIC_LEVELS)
+    roll_number = serializers.CharField(max_length=30, required=False, allow_blank=True)
+    department_id = serializers.IntegerField(required=False, allow_null=True)
+
+
+
+class FacultyOnboardingSerializer(serializers.Serializer):
+    """
+    Serializer for faculty onboarding profile completion.
+    """
+    full_name = serializers.CharField(max_length=255)
+    title = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    designation = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    department_id = serializers.IntegerField(required=False, allow_null=True)
+    research_group_id = serializers.IntegerField(required=False, allow_null=True)

@@ -83,7 +83,6 @@ export default function Navbar({ onToggleSidebar }) {
   const navigate = useNavigate();
   const isAdmin = user?.role === "admin";
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchMode, setSearchMode] = useState("keyword");
 
   const handleLogout = async () => {
     await logout();
@@ -116,13 +115,9 @@ export default function Navbar({ onToggleSidebar }) {
           placeholder="Search projects by topic, technology, or keyword..."
           value={searchQuery}
           onChange={setSearchQuery}
-          mode={searchMode}
-          onModeChange={setSearchMode}
-          showModeToggle
           className="w-full max-w-[680px]"
         />
       </div>
-
       {/* Right: User Controls - fixed width */}
       <div className="flex items-center gap-4 shrink-0">
         {/* Admin Notifications Bell */}

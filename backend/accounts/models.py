@@ -8,13 +8,8 @@ class UserRole(models.TextChoices):
     STUDENT = "student", "Student"
     FACULTY = "faculty", "Faculty"
     ADMIN = "admin", "Admin"
-    
-    """
-    later make this this 
-    STUDENT = "student", "Student"
-    FACULTY = "faculty", "Faculty"
-    """
-    
+    EXTERNAL = "external", "External"
+
 
 # this model will be changed and not have email 
 class User(AbstractUser):
@@ -22,8 +17,14 @@ class User(AbstractUser):
 
     email = models.EmailField(unique=True)
 
-    #person = models.OneToOneField(Person,on_delete=models.CASCADE, null=True, blank=True)
-
+    person = models.OneToOneField(
+        'Person',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="user_account"
+    )
+    is_onboarded = models.BooleanField(default=False)
     role = models.CharField(
         max_length=20,
         choices=UserRole.choices,

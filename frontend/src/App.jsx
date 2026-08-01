@@ -3,10 +3,11 @@ import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import ProjectDetails from "./pages/ProjectDetails";
 import DashboardLayout from "./components/DashboardLayout";
+import OnboardingModal from "./components/OnboardingModal";
 import { useAuth } from "./context/AuthContext";
 
 function RequireAuth({ children }) {
-  const { status } = useAuth();
+  const { status, user } = useAuth();
 
   if (status === "checking") {
     return (
@@ -16,7 +17,8 @@ function RequireAuth({ children }) {
     );
   }
 
-  if (status === "anonymous" || status === "select_role") {
+  // Block access to protected routes if user is not logged in or has not completed onboarding
+  if (status === "anonymous" || status === "onboarding" || !user?.is_onboarded) {
     return <Navigate to="/" replace />;
   }
 
@@ -24,31 +26,36 @@ function RequireAuth({ children }) {
 }
 
 export default function App() {
+  const { status } = useAuth();
+
   return (
-    <Routes>
-      <Route path="/" element={<Landing />} />
-      <Route
-        path="/dashboard"
-        element={
-          <RequireAuth>
-            <DashboardLayout>
-              <Dashboard />
-            </DashboardLayout>
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/projects/:id"
-        element={
-          <RequireAuth>
-            <DashboardLayout>
-              <ProjectDetails />
-            </DashboardLayout>
-          </RequireAuth>
-        }
-      />
-      {/* Fallback to landing */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      {status === "onboarding" && <OnboardingModal />}
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route
+          path="/dashboard"
+          element={
+            <RequireAuth>
+              <DashboardLayout>
+                <Dashboard />
+              </DashboardLayout>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/projects/:id"
+          element={
+            <RequireAuth>
+              <DashboardLayout>
+                <ProjectDetails />
+              </DashboardLayout>
+            </RequireAuth>
+          }
+        />
+        {/* Fallback to landing */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   );
 }
