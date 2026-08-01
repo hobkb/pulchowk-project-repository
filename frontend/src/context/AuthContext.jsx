@@ -5,19 +5,18 @@ const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [status, setStatus] = useState("checking"); // checking | authenticated | anonymous | select_role
+  const [status, setStatus] = useState("checking"); // checking | authenticated | onboarding | anonymous
 
   useEffect(() => {
     getCurrentUserWithRefresh()
       .then((body) => {
         const u = body.data;
-        const isDualRoleDev = u.email === "080bct050.nischal@pcampus.edu.np" || u.email === "080bct077.sarthak@pcampus.edu.np";
-        const savedDevRole = sessionStorage.getItem("devRole");
-        if (import.meta.env.DEV && isDualRoleDev && savedDevRole && (savedDevRole === "admin" || savedDevRole === "student" || savedDevRole === "faculty")) {
-          u.role = savedDevRole;
-        }
         setUser(u);
-        setStatus("authenticated");
+        if (!u.is_onboarded) {
+          setStatus("onboarding");
+        } else {
+          setStatus("authenticated");
+        }
       })
       .catch(() => setStatus("anonymous"));
   }, []);
@@ -27,30 +26,30 @@ export function AuthProvider({ children }) {
     const u = body.data;
     setUser(u);
     
-    const isDualRoleDev = u.email === "080bct050.nischal@pcampus.edu.np" || u.email === "080bct077.sarthak@pcampus.edu.np";
-    if (import.meta.env.DEV && isDualRoleDev) {
-      setStatus("select_role");
+    if (!u.is_onboarded) {
+      setStatus("onboarding");
     } else {
       setStatus("authenticated");
     }
   }, []);
 
-  const selectRole = useCallback((role) => {
-    sessionStorage.setItem("devRole", role);
-    setUser((prev) => prev ? { ...prev, role } : null);
+  const completeProfile = useCallback(async (formData) => {
+    const body = await authApi.completeProfile(formData);
+    const u = body.data;
+    setUser(u);
     setStatus("authenticated");
+    return u;
   }, []);
 
   const logout = useCallback(async () => {
     await authApi.logout().finally(() => {
-      sessionStorage.removeItem("devRole");
       setUser(null);
       setStatus("anonymous");
     });
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, status, loginWithGoogle, selectRole, logout }}>
+    <AuthContext.Provider value={{ user, status, loginWithGoogle, completeProfile, logout }}>
       {children}
     </AuthContext.Provider>
   );

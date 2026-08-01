@@ -1,9 +1,20 @@
 from rest_framework.views import APIView
-
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from django.db import transaction
 
-from .serializers import GoogleLoginSerializer, UserSerializer
-from .services import GoogleService, GoogleAuthenticationError, UserService
+from .models import UserRole
+from .serializers import (
+    GoogleLoginSerializer,
+    UserSerializer,
+    StudentOnboardingSerializer,
+    FacultyOnboardingSerializer,
+)
+from .services import (
+    GoogleService,
+    GoogleAuthenticationError,
+    UserService,
+    ProfileService,
+)
 from core.responses import success_response
 
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
@@ -13,7 +24,6 @@ from rest_framework.exceptions import AuthenticationFailed
 from django.conf import settings
 
 
-
 class GoogleLoginView(APIView):
     
     """
@@ -21,9 +31,12 @@ class GoogleLoginView(APIView):
 
     Upon successful verification, the user is created or retrieved,
     JWT access and refresh tokens are issued as HttpOnly cookies,
-    and the authenticated user's profile is returned.
+    and the authenticated user's profile is returned along with
+    inferred role and prefill data for onboarding.
     """
+    authentication_classes = []
     permission_classes = [AllowAny]
+
     
     def post(self, request):
         serializer= GoogleLoginSerializer(data= request.data)
@@ -41,9 +54,15 @@ class GoogleLoginView(APIView):
         refresh = RefreshToken.for_user(user=user)
         access  = refresh.access_token
         
+        inferred_role = ProfileService.infer_role_from_email(user.email)
+        prefill_data = ProfileService.get_prefill_data(user)
+        
+        user_data = UserSerializer(user).data
+        user_data["inferred_role"] = inferred_role
+        user_data["prefill_data"] = prefill_data
         
         response = success_response(
-            data=UserSerializer(user).data,
+            data=user_data,
             message="Login successful.",
         )
                 
@@ -64,6 +83,41 @@ class GoogleLoginView(APIView):
         )
         
         return response
+
+
+class CompleteProfileView(APIView):
+    """
+    Saves or updates the user's Student or Faculty profile details during onboarding.
+
+    Infers role based on email format (Student if starts with digits, Faculty otherwise).
+    Matches existing Student records by email, or Faculty records by email/full_name.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request):
+        user = request.user
+        inferred_role = ProfileService.infer_role_from_email(user.email)
+
+        if inferred_role == UserRole.STUDENT:
+            serializer = StudentOnboardingSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            person = ProfileService.save_student_profile(user, serializer.validated_data)
+        else:
+            serializer = FacultyOnboardingSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            person = ProfileService.save_faculty_profile(user, serializer.validated_data)
+
+        # Link person to user and update role
+        user.person = person
+        user.role = inferred_role
+        user.save(update_fields=["person", "role"])
+
+        return success_response(
+            data=UserSerializer(user).data,
+            message="Profile saved successfully.",
+        )
+
 
 class CurrentUserView(APIView):
         
