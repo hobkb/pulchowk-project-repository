@@ -115,7 +115,7 @@ DATABASES = {
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=1),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
 
     "ROTATE_REFRESH_TOKENS": True,
@@ -196,7 +196,7 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = os.getenv("TIMEZONE", "UTC")
 
 # Ingestion Settings
-INGESTION_MAX_UPLOAD_MB = 25
+INGESTION_MAX_UPLOAD_MB = 100
 
 
 

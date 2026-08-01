@@ -27,6 +27,7 @@ from repository.models import (
     ProjectReference,
     ProjectSection,
 )
+import mimetypes
 
 from core.responses import success_response
 
@@ -303,6 +304,7 @@ class JobPublishAPIView(APIView):
                 section_data.get("children") or [],
                 parent=section,
             )
+            
     def _validate_publish_payload(self, payload):
         project_fields = payload.get("project_fields", {})
         title = (project_fields.get("title") or "").strip()
@@ -407,11 +409,11 @@ class JobPublishAPIView(APIView):
         research_group_name = (project_fields.get("research_group_name") or "").strip()
     
         with transaction.atomic():
-            campus, _ = Campus.objects.get_or_create(
+            campus, _ = Campus.objects.get(
                 name=campus_name or "Unknown Campus",
                 defaults={"location": "Unknown"},
             )
-            department, _ = Department.objects.get_or_create(
+            department, _ = Department.objects.get(
                 name=department_name or "Unknown Department",
                 defaults={"campus": campus},
             )
@@ -444,7 +446,7 @@ class JobPublishAPIView(APIView):
                 status="Published",
                 created_by=request.user,
             )
-    
+
             self._create_sections(project, payload.get("project_sections", []))
                
             people = payload.get("people_and_roles") or []
@@ -511,12 +513,14 @@ class JobPublishAPIView(APIView):
                 )
     
             appendices = payload.get("appendices") or []
+            mime_type, _ = mimetypes.guess_type(job.file.name)
             if job.file:
+                mime_type, _ = mimetypes.guess_type(job.file.name)
                 ProjectAsset.objects.create(
                     project=project,
                     asset_type="Report",
                     file=job.file,
-                    mime_type=job.file.content_type or "application/pdf",
+                    mime_type=mime_type or "application/pdf",
                     file_size=job.file.size,
                 )
     

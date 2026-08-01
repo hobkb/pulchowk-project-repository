@@ -18,7 +18,7 @@ class Department(models.Model):
 
     campus = models.ForeignKey(Campus, on_delete=models.CASCADE, related_name="departments")
     name = models.CharField(max_length=100)
-
+    
     class Meta:
         db_table = "departments"
     

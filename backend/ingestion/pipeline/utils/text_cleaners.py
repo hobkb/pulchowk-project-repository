@@ -45,7 +45,10 @@ TOC_ENTRY = re.compile(r"\.{2,}\s*\d+\s*$")
 
 
 def normalize_line(text: str) -> str:
-    return re.sub(r"\s+", " ", text or "").strip()
+    # PostgreSQL cannot store NUL characters in text or JSON values.  Some
+    # PDFs expose them through layout extraction, so discard them before the
+    # text becomes part of extracted metadata.
+    return re.sub(r"\s+", " ", (text or "").replace("\x00", "")).strip()
 
 
 def clean_roll_number(roll: str) -> str:

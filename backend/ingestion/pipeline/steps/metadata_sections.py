@@ -5,7 +5,6 @@ from ingestion.pipeline.base import BasePipelineStep
 from ingestion.pipeline.utils.heading_utils import looks_like_heading
 from ingestion.pipeline.utils.text_cleaners import (
     normalize_line,
-    HEADING_PATTERN,
     TOC_ENTRY,
     canonicalize_heading,
 )
@@ -14,143 +13,319 @@ from ingestion.pipeline.utils.text_cleaners import (
 class MetadataSectionsStep(BasePipelineStep):
     step_name = "Sections & Back Matter Extraction"
 
+    MAJOR_SECTION_ALIASES = {
+        # Introduction and context
+      
+        'background': 'Background',
+        'context': 'Background',
+        'introduction': 'Introduction',
+        'introduction and background': 'Introduction',
+        'problem background': 'Background',
+        'problem context': 'Background',
+        'problem statement': 'Problem Statement',
+        'research background': 'Background',
+
+        # Problem, objectives, and scope
+       
+        'objectives': 'Objectives',
+        'project objectives': 'Objectives',
+        'research objectives': 'Objectives',
+        'project scope': 'Scope',
+        'scope and limitations': 'Scope',
+        'scope of the study': 'Scope',
+        'significance of the study': 'Significance',
+        'statement of the problem': 'Problem Statement',
+
+        # Literature and related work
+        'literature review': 'Literature Review',
+        'literature survey': 'Literature Review',
+        'related literature': 'Literature Review',
+        'related studies': 'Related Work',
+        'related work': 'Related Work',
+        'review of literature': 'Literature Review',
+        'state of the art': 'Related Work',
+
+        # Analysis, requirements, and design
+       
+        'requirement analysis': 'Requirements Analysis',
+        'requirements analysis': 'Requirements Analysis',
+        'requirements specification': 'Requirements',
+        'system analysis': 'System Analysis',
+        'system architecture': 'System Design',
+        'system design': 'System Design',
+        'system overview': 'System Design',
+        'system specification': 'System Design',
+
+        # Methodology and approach
+        'approach': 'Methodology',
+        'methodology': 'Methodology',
+        'method': 'Methodology',
+        'methodology and design': 'Methodology',
+        'proposed approach': 'Methodology',
+        'proposed methodology': 'Methodology',
+        'research methodology': 'Methodology',
+        'research design': 'Methodology',
+        'technical approach': 'Methodology',
+
+        # Proposed system and implementation
+        'implementation': 'Implementation',
+        'implementation details': 'Implementation',
+        'implementation methodology': 'Implementation',
+        'proposed system': 'Proposed System',
+        'system implementation': 'Implementation',
+        'system development': 'Implementation',
+
+        # Experimental setup and evaluation
+        'experimental setup': 'Experiments',
+        'experimental methodology': 'Experiments',
+        'experimental results': 'Results',
+        'experiments': 'Experiments',
+        'experiments and results': 'Results',
+        'experiments and evaluation': 'Evaluation',
+        'performance analysis': 'Evaluation',
+        'performance evaluation': 'Evaluation',
+        'proposed experimental setup': 'Experiments',
+
+        'test results': 'Results',
+        'validation': 'Validation',
+
+        # Results and discussion
+        'analysis and discussion': 'Discussion',
+        'discussion': 'Discussion',
+        'discussion and analysis': 'Discussion',
+        'results and findings': 'Findings',
+        'findings': 'Results',
+        'results': 'Results',
+        'results and analysis': 'Results',
+        'results and discussion': 'Results',
+        'results and findings': 'Results',
+
+        # Evaluation and comparison
+        'comparison': 'Evaluation',
+        'comparative analysis': 'Evaluation',
+        'evaluation': 'Evaluation',
+        'evaluation and analysis': 'Evaluation',
+        'evaluation results': 'Evaluation',
+        'performance comparison': 'Evaluation',
+        'system evaluation': 'Evaluation',
+
+        # Limitations and future work
+        'future enhancement': 'Future Enhancement',
+        'future enhancements': 'Future Enhancement',
+        'future improvement': 'Future Enhancement',
+        'future improvements': 'Future Enhancement',
+        'future scope': 'Future Enhancement',
+        'future work': 'Future Enhancement',
+        'limitations': 'Limitations',
+        'limitations and future enhancements': 'Future Enhancement',
+        'limitations and future work': 'Future Enhancement',
+
+        # Conclusion and recommendations
+        'conclusion': 'Conclusion',
+        'conclusion and future work': 'Conclusion',
+        'conclusions': 'Conclusion',
+        'concluding remarks': 'Conclusion',
+        'final remarks': 'Conclusion',
+        'recommendation': 'Recommendations',
+        'recommendations': 'Recommendations',
+        'summary': 'Conclusion',
+        'summary and conclusion': 'Conclusion',
+        'summary and conclusions': 'Conclusion',
+    }
+
+
+    MIN_MAJOR_HEADING_FONT_SIZE = 14.0
+    MIN_RECOVERY_HEADING_FONT_SIZE = 11.0
+    TOC_DOT_LEADER = re.compile(r"\.{2,}\s*(?:[ivxlcdm]+|\d+|[a-z])?\s*$", re.IGNORECASE)
+    SUBHEADING_PREFIX = re.compile(r"^\d+\.\d+(?:\.\d+)*[.) :\-]+")
+
     @staticmethod
-    def parse_section_heading(line_dict, active_major_chapter=0):
-        if not isinstance(line_dict, dict):
-            return None
+    def _normalized_major_heading(text):
+        text = normalize_line(text)
+        text = re.sub(r"^chapter\s+(?:[ivxlcdm]+|\d+)\b[. :\-]*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"^\d+(?:\.\d+)*[.) :\-]+", "", text)
+        return text.strip().rstrip(":")
 
-        text = normalize_line(line_dict.get("text", ""))
-        is_bold = bool(line_dict.get("is_bold", False))
-        font_size = float(line_dict.get("font_size", 10.0))
-
-        if not text:
-            return None
-
-        if re.match(r"^(contents?|table|figure|fig\.|index|list\s+of)", text, re.IGNORECASE):
-            return None
-        if TOC_ENTRY.search(text) or ". . ." in text or text.count('.') > 5:
-            return None
-
-        heading_match = HEADING_PATTERN.match(text)
-        if not heading_match:
-            return None
-
-        order = heading_match.group("order")
-        title = heading_match.group("title").strip()
-
-        if not title or len(title.split()) > 10:
-            return None
-
+    @staticmethod
+    def _line_font_size(line):
         try:
-            seq_steps = [int(x) for x in order.split('.')]
-        except ValueError:
-            return None
-
-        level = len(seq_steps)
-
-        if level == 1:
-            if font_size <= 11.5 and not is_bold:
-                return None
-            if seq_steps[0] != active_major_chapter + 1:
-                return None
-        else:
-            if seq_steps[0] != active_major_chapter:
-                return None
-
-        if not is_bold and not looks_like_heading(title):
-            return None
-
-        return order, title
+            return float(line.get("font_size", 0))
+        except (TypeError, ValueError):
+            return 0.0
 
     @classmethod
-    def extract_project_sections(cls, pages):
-        section_nodes = []
-        active_sections = []
-        active_major_chapter = 0
-        in_back_matter = False
+    def _back_matter_heading(cls, text):
+        """Return the back-matter kind for a heading, if this is one."""
+        normalized = normalize_line(text).lower()
+        normalized = re.sub(r"^chapter\s+(?:[ivxlcdm]+|\d+)\b[\s.:\-]*", "", normalized)
+        normalized = re.sub(r"^\d+(?:\.\d+)*\.?\s+", "", normalized)
+        if normalized in {"reference", "references", "bibliography"}:
+            return "references"
+        if re.match(
+            r"^(?:appendices?|appendix\s*:\s*.*|appendix\s+(?:[a-z]|\d+|[ivxlcdm]+)(?:\s*:\s*.*)?)$",
+            normalized,
+        ):
+            return "appendices"
+        return None
 
-        ignored_page_types = {
-            "abstract", "acknowledgement", "approval", "cover", "copyright",
-            "toc", "declaration", "certificate", "list_of_figures",
-            "list_of_tables", "list_of_abbreviations",
-        }
+    @classmethod
+    def _content_body_font_size(cls, pages):
+        sizes = sorted(
+            cls._line_font_size(line)
+            for page in pages
+            if page.get("page_type") == "content"
+            for line in page.get("lines", [])
+            if normalize_line(line.get("text", ""))
+            and not line.get("is_bold", False)
+            and cls._line_font_size(line) > 0
+        )
+        return sizes[len(sizes) // 2] if sizes else 10.0
 
+    @classmethod
+    def _is_strict_major_heading(cls, line, candidate, body_font_size):
+        return (
+            bool(line.get("is_bold", False))
+            and cls._line_font_size(line) >= cls.MIN_MAJOR_HEADING_FONT_SIZE
+            and looks_like_heading(candidate)
+        )
+
+    @classmethod
+    def _is_recovery_major_heading(cls, line, candidate, body_font_size):
+        font_size = cls._line_font_size(line)
+        return (
+            looks_like_heading(candidate)
+            and font_size >= cls.MIN_RECOVERY_HEADING_FONT_SIZE
+            and (bool(line.get("is_bold", False)) or font_size >= body_font_size + 1.0)
+        )
+
+    @classmethod
+    def _is_confirmed_back_matter_heading(cls, line, text, heading_rule, body_font_size):
+        kind = cls._back_matter_heading(text)
+        if not kind:
+            return None
+        candidate = cls._normalized_major_heading(text)
+        return kind if heading_rule(line, candidate, body_font_size) else None
+
+    @classmethod
+    def _content_pages_with_toc_guard(cls, pages):
+        in_toc_sequence = False
         for page in pages:
-            page_type = page.get("page_type")
-            page_num = page.get("page_number", page.get("page_num", 1))
-
-            if page_type in ignored_page_types:
-                active_sections = []
+            if page.get("page_type") == "toc":
+                in_toc_sequence = True
                 continue
+            dot_leader_count = sum(
+                bool(cls.TOC_DOT_LEADER.search(normalize_line(line.get("text", ""))))
+                for line in page.get("lines", [])
+            )
+            if in_toc_sequence and dot_leader_count:
+                continue
+            if page.get("page_type") == "content":
+                in_toc_sequence = False
+                yield page
 
+    @classmethod
+    def _extract_flat_sections(cls, pages, heading_rule, include_unsectioned_content=False):
+        sections, current, in_back_matter = [], None, False
+        body_font_size = cls._content_body_font_size(pages)
+        for page in cls._content_pages_with_toc_guard(pages):
+            page_num = page.get("page_number", page.get("page_num", 1))
             for line in page.get("lines", []):
                 text = normalize_line(line.get("text", ""))
                 if not text or TOC_ENTRY.search(text):
                     continue
-                if text.lower() == "references":
-                    active_sections = []
+                if cls._is_confirmed_back_matter_heading(line, text, heading_rule, body_font_size):
                     in_back_matter = True
+                    current = None
                     continue
                 if in_back_matter:
                     continue
 
-                heading_data = cls.parse_section_heading(line, active_major_chapter)
-
-                if heading_data:
-                    order, title = heading_data
-                    level = len(order.split("."))
-
-                    if level == 1:
-                        active_major_chapter = int(order.split(".")[0])
-
-                    while active_sections and active_sections[-1]["heading_level"] >= level:
-                        active_sections.pop()
-
-                    parent = active_sections[-1] if active_sections else None
+                # Flat extraction deliberately keeps subheadings inside their
+                # parent major section; aliases such as "Background" must not
+                # promote a numbered 1.1 heading into its own section.
+                if cls.SUBHEADING_PREFIX.match(text):
+                    continue
+                candidate = cls._normalized_major_heading(text)
+                canonical = cls.MAJOR_SECTION_ALIASES.get(candidate.lower())
+                if canonical and heading_rule(line, candidate, body_font_size):
                     current = {
-                        "heading": f"{order} {title}",
-                        "canonical_section": canonicalize_heading(title),
-                        "heading_level": level,
-                        "display_order": len(section_nodes) + 1,
+                        "heading": canonical,
+                        "canonical_section": canonicalize_heading(candidate),
+                        "heading_level": 1,
+                        "display_order": len(sections) + 1,
                         "page_start": page_num,
                         "page_end": page_num,
                         "content": "",
-                        "children": [],
                     }
-                    if parent is not None:
-                        parent["children"].append(current)
-                    section_nodes.append(current)
-                    active_sections.append(current)
+                    sections.append(current)
                     continue
+                if current:
+                    current["content"] += ("\n" if current["content"] else "") + text
+                    current["page_end"] = page_num
+                elif include_unsectioned_content and candidate:
+                    current = {
+                        "heading": "Unsectioned Content",
+                        "canonical_section": "unsectioned_content",
+                        "heading_level": 1,
+                        "display_order": len(sections) + 1,
+                        "page_start": page_num,
+                        "page_end": page_num,
+                        "content": text,
+                    }
+                    sections.append(current)
 
-                if active_sections:
-                    current = active_sections[-1]
-                    if current["content"]:
-                        current["content"] += "\n"
-                    current["content"] += text
-                    for section in active_sections:
-                        section["page_end"] = page_num
-
-        for section in section_nodes:
+        for section in sections:
             section["word_count"] = len(re.findall(r"\w+", section["content"]))
+        return sections
 
-        return [section for section in section_nodes if section["heading_level"] == 1]
+    @classmethod
+    def extract_project_sections(cls, pages):
+        sections = cls._extract_flat_sections(pages, cls._is_strict_major_heading)
+        if len(sections) <= 2:
+            sections = cls._extract_flat_sections(pages, cls._is_recovery_major_heading)
+        if len(sections) <= 2:
+            sections = cls._extract_flat_sections(
+                pages,
+                cls._is_recovery_major_heading,
+                include_unsectioned_content=True,
+            )
+        return sections
 
-    @staticmethod
-    def extract_back_matter(pages):
+    @classmethod
+    def extract_back_matter(cls, pages):
         references_content = []
         references_start = None
         references_end = None
-        for page in pages:
+        appendices = []
+        current_appendix = None
+        body_font_size = cls._content_body_font_size(pages)
+        for page in cls._content_pages_with_toc_guard(pages):
             page_num = page.get("page_number", page.get("page_num", 1))
             for line in page.get("lines", []):
                 text = normalize_line(line.get("text", ""))
-                if text.lower() == "references":
+                back_matter_kind = cls._is_confirmed_back_matter_heading(
+                    line, text, cls._is_recovery_major_heading, body_font_size
+                )
+                if back_matter_kind == "references":
                     references_start = page_num
                     references_end = page_num
                     references_content.append(text)
+                    current_appendix = None
                     continue
-                if references_start is not None:
+                if back_matter_kind == "appendices":
+                    current_appendix = {
+                        "title": text,
+                        "page_start": page_num,
+                        "page_end": page_num,
+                        "content": text,
+                    }
+                    appendices.append(current_appendix)
+                    continue
+                if current_appendix is not None:
+                    if text:
+                        current_appendix["content"] += f"\n{text}"
+                    current_appendix["page_end"] = page_num
+                elif references_start is not None:
                     references_content.append(text)
                     references_end = page_num
         return {
@@ -159,7 +334,7 @@ class MetadataSectionsStep(BasePipelineStep):
                 "page_end": references_end,
                 "content": "\n".join(references_content).strip(),
             },
-            "appendices": [],
+            "appendices": appendices,
         }
 
     def run(self, job: IngestionJob, context: dict) -> dict:
@@ -170,7 +345,6 @@ class MetadataSectionsStep(BasePipelineStep):
 
         draft = context.get("draft_metadata", {})
         draft["project_sections"] = sections
-        draft["back_matter"] = back_matter
         references = back_matter["references"]
         draft["references"] = (
             [{"title": "References", "citation": references["content"]}]
