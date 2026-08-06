@@ -2,7 +2,7 @@ from django.contrib import admin
 
 # Register your models here.
 from django.contrib import admin
-from .models import Campus, Department, ResearchGroup
+from .models import Campus, Department, ResearchGroup, DepartmentAdmin as DepartmentAdminModel
 
 
 @admin.register(Campus)
@@ -52,4 +52,28 @@ class ResearchGroupAdmin(admin.ModelAdmin):
     search_fields = [
         "name",
         "department__name",
+    ]
+
+
+@admin.register(DepartmentAdminModel)
+class DepartmentAdminRecordAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "faculty",
+        "department",
+        "designation_title",
+        "is_active",
+        "assigned_at",
+    ]
+
+    list_filter = [
+        "department",
+        "is_active",
+    ]
+
+    search_fields = [
+        "faculty__full_name",
+        "faculty__email",
+        "department__name",
+        "designation_title",
     ]

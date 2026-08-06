@@ -2,12 +2,13 @@ from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.db import transaction
 
-from .models import UserRole
+from .models import User, UserRole, Faculty
 from .serializers import (
     GoogleLoginSerializer,
     UserSerializer,
     StudentOnboardingSerializer,
     FacultyOnboardingSerializer,
+    FacultySerializer,
 )
 from .services import (
     GoogleService,
@@ -117,6 +118,18 @@ class CompleteProfileView(APIView):
             data=UserSerializer(user).data,
             message="Profile saved successfully.",
         )
+
+
+class FacultyListView(APIView):
+    """
+    Returns a list of extracted / existing faculty members for selection during onboarding.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        faculties = Faculty.objects.all().order_by("full_name")
+        serializer = FacultySerializer(faculties, many=True)
+        return success_response(data=serializer.data)
 
 
 class CurrentUserView(APIView):

@@ -205,14 +205,20 @@ class ProfileService:
     @transaction.atomic
     def save_faculty_profile(user: User, data: dict) -> Faculty:
         """
-        Updates an existing faculty record (matched by email or full_name) or creates a new one.
+        Updates an existing faculty record (matched by faculty_id, email, or full_name) or creates a new one.
         """
         email = user.email
         full_name = data["full_name"].strip()
+        faculty_id = data.get("faculty_id")
 
-        existing_faculty = Faculty.objects.filter(
-            models.Q(email=email) | models.Q(full_name__iexact=full_name)
-        ).first()
+        existing_faculty = None
+        if faculty_id:
+            existing_faculty = Faculty.objects.filter(id=faculty_id).first()
+
+        if not existing_faculty:
+            existing_faculty = Faculty.objects.filter(
+                models.Q(email=email) | models.Q(full_name__iexact=full_name)
+            ).first()
 
         if existing_faculty:
             existing_faculty.email = email

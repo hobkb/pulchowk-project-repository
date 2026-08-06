@@ -24,6 +24,7 @@ async function request(path, options={})
 export const authApi = {
     loginWithGoogle: (idToken) =>
         request("accounts/google/login/", {method: "POST", body: JSON.stringify({id_token : idToken}) }),
+    getFacultyList: () => request("accounts/faculty/", {method: "GET"}),
     completeProfile: (formData) =>
         request("accounts/profile/complete/", {method: "POST", body: JSON.stringify(formData)}),
     getDepartments: () => request("organization/departments/", {method: "GET"}),

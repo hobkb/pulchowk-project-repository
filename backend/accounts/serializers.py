@@ -1,7 +1,34 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Student
+from .models import Student, Faculty
 from .services import ProfileService
+
+class FacultySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Faculty
+        fields = ("id", "full_name", "title", "designation", "department_id", "email")
+
+
+class StudentOnboardingSerializer(serializers.Serializer):
+    """
+    Serializer for student onboarding profile completion.
+    """
+    full_name = serializers.CharField(max_length=255)
+    academic_level = serializers.ChoiceField(choices=Student.ACADEMIC_LEVELS)
+    roll_number = serializers.CharField(max_length=30, required=False, allow_blank=True)
+    department_id = serializers.IntegerField(required=False, allow_null=True)
+
+
+class FacultyOnboardingSerializer(serializers.Serializer):
+    """
+    Serializer for faculty onboarding profile completion.
+    """
+    faculty_id = serializers.IntegerField(required=False, allow_null=True)
+    full_name = serializers.CharField(max_length=255)
+    title = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    designation = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    department_id = serializers.IntegerField(required=False, allow_null=True)
+    research_group_id = serializers.IntegerField(required=False, allow_null=True)
 
 
 User = get_user_model()
@@ -37,7 +64,7 @@ class UserSerializer(serializers.ModelSerializer):
         return obj.person_id is not None
 
     def get_inferred_role(self, obj) -> str:
-        return ProfileService.infer_role_from_email(obj.email)
+        return str(ProfileService.infer_role_from_email(obj.email))
         
 
 class GoogleLoginSerializer(serializers.Serializer):
