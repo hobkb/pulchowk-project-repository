@@ -88,12 +88,35 @@ class MetadataSectionsStep(BasePipelineStep):
 
         'test results': 'Results',
         'validation': 'Validation',
+        
+        
+        # Data and dataset
+        'data collection': 'Data Collection',
+        'data acquisition': 'Data Collection',
+        'data sources': 'Data Collection',
+
+        'dataset': 'Dataset',
+        'dataset description': 'Dataset',
+        'dataset overview': 'Dataset',
+        'data description': 'Dataset',
+
+        # Data exploration
+        'data exploration': 'Data Exploration',
+        'exploratory data analysis': 'Data Exploration',
+        'exploratory analysis': 'Data Exploration',
+        'data analysis': 'Data Exploration',
+
+        # Data preprocessing
+        'data preprocessing': 'Data Preprocessing',
+        'data pre-processing': 'Data Preprocessing',
+        'data preparation': 'Data Preprocessing',
+        'data cleaning': 'Data Preprocessing',
 
         # Results and discussion
         'analysis and discussion': 'Discussion',
         'discussion': 'Discussion',
         'discussion and analysis': 'Discussion',
-        'results and findings': 'Findings',
+        'results and findings': 'Results',
         'findings': 'Results',
         'results': 'Results',
         'results and analysis': 'Results',

@@ -510,18 +510,25 @@ class JobPublishAPIView(APIView):
         research_group_name = (project_fields.get("research_group_name") or "").strip()
     
         with transaction.atomic():
-            campus = Campus.objects.filter(name=campus_name).first()
+            campus = Campus.objects.filter(name__iexact=campus_name).first()
 
             department = None
             if department_name:
-                department = Department.objects.filter(name=department_name).first()
+                department = Department.objects.filter(
+                    name__iexact=department_name
+                ).first()
+
                 if campus and department is not None and department.campus_id != campus.id:
                     department = None
+
                 if department is None and campus is not None:
-                    department = Department.objects.filter(campus=campus, name=department_name).first()
+                    department = Department.objects.filter(
+                        campus=campus,
+                        name__iexact=department_name,
+                    ).first()
 
             if department is None and campus is not None:
-                department = Department.objects.filter(campus=campus).first()
+                department = Department.objects.filter(campus__iexact=campus).first()
 
             if department is None:
                 department = Department.objects.first()
