@@ -55,6 +55,51 @@ def clean_roll_number(roll: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", roll).upper()
 
 
+def normalize_person_name(value: str) -> str:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        return ""
+
+    tokens = []
+    for token in cleaned.split():
+        if not token:
+            continue
+        token = token.strip(".,;:()[]{}\"'")
+        if not token:
+            continue
+        if token.isupper() and len(token) <= 3:
+            tokens.append(token)
+            continue
+        tokens.append(token[:1].upper() + token[1:].lower())
+
+    return " ".join(tokens)
+
+
+def normalize_section_title(value: str) -> str:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        return ""
+
+    cleaned = cleaned.replace("_", " ").replace("-", " ")
+    tokens = []
+    for token in re.split(r"\s+", cleaned):
+        if not token:
+            continue
+        token = re.sub(r"[^A-Za-z0-9]", "", token)
+        if not token:
+            continue
+        if token.isupper() and len(token) <= 3:
+            tokens.append(token)
+            continue
+        tokens.append(token[:1].upper() + token[1:].lower())
+
+    return " ".join(tokens)
+
+
+def normalize_canonical_section(value: str) -> str:
+    return normalize_section_title(value)
+
+
 def extract_roll(line: str):
     match = ROLL_PATTERN.search(line or "")
     if not match:

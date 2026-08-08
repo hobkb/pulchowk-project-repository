@@ -60,4 +60,16 @@ checkpoints/
 *.bak
 *.swp
 
+*.pdf
+*.md
+
 client_secret_90557791507-la7kep1csa0kgkb6cj2a3f1100sggsnk.apps.googleusercontent.com.json
+
+
+.postman
+redis.txt
+postman
+scripts/
+notebook_outputs/
+
+temporary.py
