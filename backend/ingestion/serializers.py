@@ -80,7 +80,7 @@ class ProjectFieldsSerializer(serializers.Serializer):
     department_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     campus_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     research_group_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    supervisors = serializers.ListField(required=False, allow_empty=True)
+    supervisors = serializers.ListField(required=False, allow_empty=True, allow_null=True)
 
 
 class ProjectSectionSerializer(serializers.Serializer):
@@ -106,6 +106,7 @@ class ProjectSectionSerializer(serializers.Serializer):
 class PersonRoleSerializer(serializers.Serializer):
     full_name = serializers.CharField(required=False, allow_blank=True)
     email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
+    roll_number = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     role = serializers.CharField(required=False, allow_blank=True)
     display_order = serializers.IntegerField(required=False, allow_null=True)
     academic_level = serializers.CharField(required=False, allow_blank=True)

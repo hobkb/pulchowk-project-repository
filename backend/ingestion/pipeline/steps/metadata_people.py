@@ -53,7 +53,7 @@ class MetadataPeopleStep(BasePipelineStep):
                         seen.add(key)
                         authors.append({
                             "full_name": name,
-                            "identifier": roll,
+                            "roll_number": roll,
                             "academic_level": academic_level,
                             "role": "Author",
                             "display_order": len(authors) + 1,

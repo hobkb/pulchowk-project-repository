@@ -3,13 +3,13 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 
-from accounts.models import User
+from accounts.models import Faculty, Student, User
 from ingestion.models import IngestionJob
 from ingestion.pipeline.steps.page_classification import DocumentPageClassifier
 from ingestion.pipeline.steps.metadata_sections import MetadataSectionsStep
 from ingestion.pipeline.utils.text_cleaners import normalize_line
 from organization.models import Campus, Department, ResearchGroup
-from repository.models import Project
+from repository.models import Project, ProjectSection
 
 
 class JobPublishAPIViewTests(TestCase):
@@ -66,15 +66,16 @@ class JobPublishAPIViewTests(TestCase):
                 "people_and_roles": [
                     {
                         "full_name": "Alice Example",
-                        "email": "alice@example.com",
                         "role": "Author",
                         "display_order": 1,
+                        "academic_level": "Masters",
+                        "roll_number": "080BCT077",
                     },
                     {
                         "full_name": "Bob Supervisor",
-                        "email": "bob@example.com",
                         "role": "Supervisor",
                         "display_order": 2,
+                        "designation": "Professor",
                     },
                 ],
                 "keywords": ["django", "machine learning"],
@@ -118,17 +119,125 @@ class JobPublishAPIViewTests(TestCase):
         self.assertEqual(project.department.name, "Computer Engineering")
         self.assertEqual(project.research_group.name, "AI Lab")
         self.assertEqual(project.project_people.count(), 2)
+        self.assertTrue(Student.objects.filter(full_name="Alice Example", roll_number="080BCT077").exists())
+        self.assertTrue(Faculty.objects.filter(full_name="Bob Supervisor", designation="Professor").exists())
         self.assertEqual(project.project_keywords.count(), 2)
         self.assertEqual(project.project_domains.count(), 1)
         self.assertEqual(project.sections.count(), 2)
         introduction = project.sections.get(heading="Introduction")
         subsection = project.sections.get(heading="Problem statement")
-        self.assertIsNone(introduction.parent)
-        self.assertEqual(subsection.parent, introduction)
+        self.assertFalse(hasattr(introduction, "parent"))
+        self.assertFalse(hasattr(subsection, "parent"))
         self.assertEqual(project.references.get().citation, "[1] Example reference")
         self.assertEqual(project.assets.count(), 1)
         self.assertEqual(project.status, "Published")
         self.assertEqual(job.status, IngestionJob.Status.VERIFIED)
+
+    def test_publish_extracts_faculty_title_and_normalizes_person_name(self):
+        user = User.objects.create_user(
+            email="title@example.com", password="secret123", is_staff=True
+        )
+        job = IngestionJob.objects.create(
+            file=SimpleUploadedFile("report.pdf", b"%PDF-1.4", content_type="application/pdf"),
+            original_filename="report.pdf",
+            uploaded_by=user,
+            status=IngestionJob.Status.EXTRACTED,
+            extracted_payload={
+                "project_fields": {
+                    "title": "Title Extraction",
+                    "department_name": "Computer Engineering",
+                    "campus_name": "Pulchowk Campus",
+                },
+                "people_and_roles": [
+                    {
+                        "full_name": "Prof. Dr. Manoj Shrestha",
+                        "role": "Supervisor",
+                        "designation": "Professor",
+                    },
+                    {
+                        "full_name": "alice example",
+                        "role": "Author",
+                        "display_order": 1,
+                        "academic_level": "Masters",
+                        "roll_number": "080BCT077",
+                    },
+                ],
+            },
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        response = client.post(reverse("ingestion:job-publish", args=[job.id]))
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(
+            Faculty.objects.filter(
+                full_name="Manoj Shrestha",
+                title="Prof. Dr.",
+                designation="Professor",
+            ).exists()
+        )
+        self.assertTrue(
+            Student.objects.filter(
+                full_name="Alice Example",
+                roll_number="080BCT077",
+            ).exists()
+        )
+
+    def test_publish_normalizes_person_names_and_canonical_sections(self):
+        user = User.objects.create_user(
+            email="normalize@example.com", password="secret123", is_staff=True
+        )
+        campus = Campus.objects.create(name="Pulchowk Campus", location="Pulchowk")
+        Department.objects.create(campus=campus, name="Computer Engineering")
+        job = IngestionJob.objects.create(
+            file=SimpleUploadedFile("report.pdf", b"%PDF-1.4", content_type="application/pdf"),
+            original_filename="report.pdf",
+            uploaded_by=user,
+            status=IngestionJob.Status.EXTRACTED,
+            extracted_payload={
+                "project_fields": {
+                    "title": "Normalization Test",
+                    "abstract": "Test normalization.",
+                    "department_name": "Computer Engineering",
+                    "campus_name": "Pulchowk Campus",
+                },
+                "people_and_roles": [
+                    {
+                        "full_name": "alice example",
+                        "role": "Author",
+                        "display_order": 1,
+                        "academic_level": "Masters",
+                        "roll_number": "080BCT077",
+                    },
+                    {
+                        "full_name": "dr. ramesh sharma",
+                        "role": "Supervisor",
+                        "designation": "Professor",
+                    },
+                ],
+                "project_sections": [
+                    {
+                        "heading": "literature review",
+                        "canonical_section": "literature review",
+                        "heading_level": 1,
+                        "display_order": 1,
+                        "content": "Content.",
+                    }
+                ],
+            },
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        response = client.post(reverse("ingestion:job-publish", args=[job.id]))
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(Student.objects.filter(full_name="Alice Example", roll_number="080BCT077").exists())
+        self.assertTrue(Faculty.objects.filter(full_name="Ramesh Sharma").exists())
+        self.assertTrue(ProjectSection.objects.filter(canonical_section="Literature Review").exists())
 
     def test_flat_section_extraction_ignores_subheadings(self):
         pages = [

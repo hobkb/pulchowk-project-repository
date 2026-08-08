@@ -98,7 +98,14 @@ class MetadataSectionsStep(BasePipelineStep):
         'results': 'Results',
         'results and analysis': 'Results',
         'results and discussion': 'Results',
+        'result and discussion': 'Results',
+        'results and discussions': 'Results',
         'results and findings': 'Results',
+        'experimental results and findings': 'Results',
+        'experimental results and discussion': 'Results',
+        'experimental results and discussions': 'Results',
+        'outcome': 'Results',
+        'outcomes': 'Results',
 
         # Evaluation and comparison
         'comparison': 'Evaluation',
@@ -109,6 +116,13 @@ class MetadataSectionsStep(BasePipelineStep):
         'performance comparison': 'Evaluation',
         'system evaluation': 'Evaluation',
 
+        # Resources
+        'resources': 'Resources',
+        'resources used': 'Resources',
+        'project resources': 'Resources',
+        'project resource': 'Resources',
+        'resource used': 'Resources',
+        
         # Limitations and future work
         'future enhancement': 'Future Enhancement',
         'future enhancements': 'Future Enhancement',
@@ -118,8 +132,12 @@ class MetadataSectionsStep(BasePipelineStep):
         'future work': 'Future Enhancement',
         'limitations': 'Limitations',
         'limitations and future enhancements': 'Future Enhancement',
+        'limitations and future enhancement': 'Future Enhancement',
         'limitations and future work': 'Future Enhancement',
 
+        "challenges faced":"Challenges",
+        "challenges":"Challenges",
+        
         # Conclusion and recommendations
         'conclusion': 'Conclusion',
         'conclusion and future work': 'Conclusion',
@@ -297,8 +315,17 @@ class MetadataSectionsStep(BasePipelineStep):
         references_start = None
         references_end = None
         appendices = []
+        seen_appendix_titles = set()
         current_appendix = None
+        in_references = False
         body_font_size = cls._content_body_font_size(pages)
+
+        total_pages = max(
+            (page.get("page_number", page.get("page_num", 1)) for page in pages),
+            default=1,
+        )
+        back_matter_min_page = total_pages / 2
+
         for page in cls._content_pages_with_toc_guard(pages):
             page_num = page.get("page_number", page.get("page_num", 1))
             for line in page.get("lines", []):
@@ -307,12 +334,30 @@ class MetadataSectionsStep(BasePipelineStep):
                     line, text, cls._is_recovery_major_heading, body_font_size
                 )
                 if back_matter_kind == "references":
-                    references_start = page_num
+                    if page_num < back_matter_min_page:
+                        # too early — false hit, not real References section
+                        in_references = False
+                        current_appendix = None
+                        continue
+                    if not in_references:
+                        references_start = page_num
+                        in_references = True
                     references_end = page_num
                     references_content.append(text)
                     current_appendix = None
                     continue
                 if back_matter_kind == "appendices":
+                    if page_num < back_matter_min_page:
+                        current_appendix = None
+                        continue
+                    title_key = text.strip().lower()
+                    if title_key in seen_appendix_titles:
+                        for appx in appendices:
+                            if appx["title"].strip().lower() == title_key:
+                                current_appendix = appx
+                                break
+                        continue
+                    seen_appendix_titles.add(title_key)
                     current_appendix = {
                         "title": text,
                         "page_start": page_num,
@@ -325,9 +370,10 @@ class MetadataSectionsStep(BasePipelineStep):
                     if text:
                         current_appendix["content"] += f"\n{text}"
                     current_appendix["page_end"] = page_num
-                elif references_start is not None:
+                elif in_references:
                     references_content.append(text)
                     references_end = page_num
+
         return {
             "references": {
                 "page_start": references_start,
@@ -347,7 +393,12 @@ class MetadataSectionsStep(BasePipelineStep):
         draft["project_sections"] = sections
         references = back_matter["references"]
         draft["references"] = (
-            [{"title": "References", "citation": references["content"]}]
+            [{
+                "title": "References",
+                "citation": references["content"],
+                "page_start": references["page_start"],
+                "page_end": references["page_end"],
+            }]
             if references["content"]
             else []
         )

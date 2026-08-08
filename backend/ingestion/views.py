@@ -6,7 +6,7 @@ from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
-from accounts.models import Person
+from accounts.models import Faculty, Person, Student
 from ingestion.models import IngestionJob, IngestionJobLog
 from ingestion.serializers import (
     IngestionJobCreateSerializer,
@@ -27,7 +27,12 @@ from repository.models import (
     ProjectReference,
     ProjectSection,
 )
-import mimetypes
+import mimetypes, re
+from ingestion.pipeline.utils.text_cleaners import (
+    clean_roll_number,
+    normalize_canonical_section,
+    normalize_person_name,
+)
 
 from core.responses import success_response
 
@@ -200,21 +205,16 @@ class JobDetailAPIView(APIView):
             )
     
         if "project_sections" in serializer.validated_data:
-            payload.setdefault("project_sections", [])
-    
-            existing = {
-                section.get("display_order"): section
-                for section in payload["project_sections"]
-            }
-    
-            for updated_section in serializer.validated_data["project_sections"]:
-                order = updated_section["display_order"]
-    
-                if order in existing:
-                    existing[order].update(updated_section)
-                else:
-                    payload["project_sections"].append(updated_section)
-    
+           project_sections = serializer.validated_data["project_sections"]
+
+           for section in project_sections:
+                if "content" in section:
+                    section["word_count"] = len(
+                        re.findall(r"\w+", section["content"])
+                    )
+
+           payload["project_sections"] = project_sections
+
         for field_name in [
             "people_and_roles",
             "keywords",
@@ -274,6 +274,15 @@ class JobPublishAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated,
                          # permissions.IsAdminUser,  # Restrict to admins only
                           ]
+    STUDENT_ROLES = {"author", "student"}
+    
+    FACULTY_ROLES = {
+                    "faculty",
+                    "supervisor",
+                    "co-supervisor",
+                    "co supervisor",
+                }
+    
     @staticmethod
     def _iter_sections(sections):
         for section in sections:
@@ -283,15 +292,16 @@ class JobPublishAPIView(APIView):
             yield from JobPublishAPIView._iter_sections(section.get("children") or [])
 
     @classmethod
-    def _create_sections(cls, project, sections, parent=None):
+    def _create_sections(cls, project, sections):
         for index, section_data in enumerate(sections, start=1):
             if not isinstance(section_data, dict):
                 continue
-            section = ProjectSection.objects.create(
+            heading = section_data.get("heading", f"Section {index}")
+            canonical_section = section_data.get("canonical_section")
+            ProjectSection.objects.create(
                 project=project,
-                parent=parent,
-                heading=section_data.get("heading", f"Section {index}"),
-                canonical_section=section_data.get("canonical_section"),
+                heading=normalize_person_name(heading),
+                canonical_section=normalize_canonical_section(canonical_section),
                 heading_level=section_data.get("heading_level", 1),
                 display_order=section_data.get("display_order", index),
                 content=section_data.get("content", ""),
@@ -299,11 +309,7 @@ class JobPublishAPIView(APIView):
                 page_end=section_data.get("page_end"),
                 word_count=section_data.get("word_count", 0),
             )
-            cls._create_sections(
-                project,
-                section_data.get("children") or [],
-                parent=section,
-            )
+            cls._create_sections(project, section_data.get("children") or [])
             
     def _validate_publish_payload(self, payload):
         project_fields = payload.get("project_fields", {})
@@ -316,9 +322,7 @@ class JobPublishAPIView(APIView):
         errors = {}
         if not title:
             errors.setdefault("project_fields.title", []).append("Title is required.")
-        if not abstract:
-            errors.setdefault("project_fields.abstract", []).append("Abstract is required.")
-    
+
         authors = [person for person in people if str(person.get("role") or "").lower() == "author"]
         if not authors:
             errors.setdefault("people_and_roles", []).append("At least one author is required.")
@@ -343,22 +347,119 @@ class JobPublishAPIView(APIView):
                 "Department could not be resolved from the extracted metadata."
             )
     
-        if not sections:
-            errors.setdefault("project_sections", []).append("At least one section is required.")
-    
-        for index, section in enumerate(self._iter_sections(sections)):
-            heading_level = section.get("heading_level") or 1
-            if not isinstance(heading_level, int) or heading_level < 1 or heading_level > 6:
-                errors.setdefault("project_sections", []).append(
-                    f"Section {index + 1} has an invalid heading level."
-                )
-                break
-            
-        if not keywords:
-            errors.setdefault("keywords", []).append("At least one keyword is required.")
-    
+        if sections:
+            for index, section in enumerate(self._iter_sections(sections)):
+                heading_level = section.get("heading_level") or 1
+                if not isinstance(heading_level, int) or heading_level < 1 or heading_level > 6:
+                    errors.setdefault("project_sections", []).append(
+                        f"Section {index + 1} has an invalid heading level."
+                    )
+                    break
+
         if errors:
             raise ValidationError(errors)
+    
+    @staticmethod
+    def get_or_create_student(
+        *,
+        full_name,
+        department,
+        roll_number,
+        academic_level,
+    ):
+        roll_number = clean_roll_number(roll_number) if roll_number else ""
+        academic_level = academic_level or "UG"
+
+        email = None
+        if roll_number:
+            email_roll = roll_number
+            if email_roll.upper().startswith("PUL"):
+                email_roll = email_roll[3:]
+
+            first_name = full_name.split()[0].lower()
+            email = f"{email_roll.lower()}.{first_name}@pcampus.edu.np"
+
+        if roll_number:
+            student, _ = Student.objects.update_or_create(
+                roll_number=roll_number,
+                defaults={
+                    "full_name": full_name,
+                    "department": department,
+                    "academic_level": academic_level,
+                    "email": email,
+                },
+            )
+            return student
+
+        student, _ = Student.objects.update_or_create(
+            full_name=full_name,
+            academic_level=academic_level,
+            defaults={
+                "department": department,
+                "email": email,
+            },
+        )
+
+        return student
+
+    TITLE_TOKEN_RE = re.compile(
+        r'^(?P<title>(?:Prof(?:essor)?\.?|Dr\.?|Mr\.?|Mrs\.?|Ms\.?|Miss|Drs\.?|Engr\.?|Rev\.?|Hon\.?)'
+        r'(?:\s+(?:Prof(?:essor)?\.?|Dr\.?|Mr\.?|Mrs\.?|Ms\.?|Miss|Drs\.?|Engr\.?|Rev\.?|Hon\.?))*)\s+(?P<name>.+)$',
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _normalize_full_name(full_name):
+        return normalize_person_name(full_name)
+
+    @classmethod
+    def _parse_faculty_full_name(cls, full_name):
+        cleaned = str(full_name or "").strip()
+        if not cleaned:
+            return "", ""
+
+        match = cls.TITLE_TOKEN_RE.match(cleaned)
+        if not match:
+            return cls._normalize_full_name(cleaned), ""
+
+        title = match.group("title").strip()
+        name = cls._normalize_full_name(match.group("name").strip())
+        return name, title
+
+    @staticmethod
+    def get_or_create_faculty(
+        *,
+        full_name,
+        department,
+        designation,
+        title="",
+    ):
+
+        faculty, _ = Faculty.objects.update_or_create(
+            full_name=full_name,
+            department=department,
+            defaults={
+                "designation": designation,
+                "title": title,
+            },
+        )
+
+        return faculty
+
+    @staticmethod
+    def get_or_create_person(
+        *,
+        full_name,
+        department,
+    ):
+        person, _ = Person.objects.update_or_create(
+            full_name=full_name,
+            defaults={
+                "department": department,
+            },
+        )
+
+        return person
     
     def post(self, request, job_id):
         job = get_job_for_user(job_id, request.user)
@@ -409,25 +510,28 @@ class JobPublishAPIView(APIView):
         research_group_name = (project_fields.get("research_group_name") or "").strip()
     
         with transaction.atomic():
-            campus, _ = Campus.objects.get(
-                name=campus_name or "Unknown Campus",
-                defaults={"location": "Unknown"},
-            )
-            department, _ = Department.objects.get(
-                name=department_name or "Unknown Department",
-                defaults={"campus": campus},
-            )
-            if department.campus_id != campus.id:
-                department.campus = campus
-                department.save(update_fields=["campus"])
-    
+            campus = Campus.objects.filter(name=campus_name).first()
+
+            department = None
+            if department_name:
+                department = Department.objects.filter(name=department_name).first()
+                if campus and department is not None and department.campus_id != campus.id:
+                    department = None
+                if department is None and campus is not None:
+                    department = Department.objects.filter(campus=campus, name=department_name).first()
+
+            if department is None and campus is not None:
+                department = Department.objects.filter(campus=campus).first()
+
+            if department is None:
+                department = Department.objects.first()
+
             research_group = None
-            if research_group_name:
-                research_group, _ = ResearchGroup.objects.get_or_create(
+            if research_group_name and department is not None:
+                research_group = ResearchGroup.objects.filter(
                     department=department,
                     name=research_group_name,
-                    defaults={"description": ""},
-                )
+                ).first()
     
             project = Project.objects.create(
                 title=title,
@@ -445,46 +549,75 @@ class JobPublishAPIView(APIView):
                 research_group=research_group,
                 status="Published",
                 created_by=request.user,
+                extraction_verified_by=request.user,
             )
 
             self._create_sections(project, payload.get("project_sections", []))
                
             people = payload.get("people_and_roles") or []
+        
             for person_data in people:
-                full_name = str(person_data.get("full_name") or "").strip()
+                raw_full_name = (person_data.get("full_name") or "").strip()
+                role = (person_data.get("role") or "Author").strip()
+                role_lower = role.lower()
+                designation = (person_data.get("designation") or "").strip()
+                academic_level = (person_data.get("academic_level") or "UG").strip()
+                roll_number = clean_roll_number(
+                    (person_data.get("roll_number") or "").strip()
+                )
+
+                if role_lower in self.FACULTY_ROLES:
+                    full_name, title = self._parse_faculty_full_name(raw_full_name)
+                else:
+                    full_name = self._normalize_full_name(raw_full_name)
+                    title = ""
+
                 if not full_name:
                     continue
-    
-                role = str(person_data.get("role") or "Author").strip() or "Author"
-                email = (person_data.get("email") or "").strip()
-                if not email:
-                    slug = slugify(full_name) or "person"
-                    email = f"{slug}@example.invalid"
-    
-                person, _ = Person.objects.get_or_create(
-                    email=email,
-                    defaults={
-                        "full_name": full_name,
-                        "department": department,
-                    },
-                )
-                if person.full_name != full_name or person.department_id != department.id:
-                    person.full_name = full_name
-                    person.department = department
-                    person.save(update_fields=["full_name", "department"])
-    
-                ProjectPerson.objects.create(
+
+                if role_lower in self.STUDENT_ROLES:
+                    person = self.get_or_create_student(
+                        full_name=full_name,
+                        department=department,
+                        roll_number=roll_number,
+                        academic_level=academic_level,
+                    )
+
+                elif role_lower in self.FACULTY_ROLES:
+                    person = self.get_or_create_faculty(
+                        full_name=full_name,
+                        department=department,
+                        designation=designation,
+                        title=title,
+                    )
+
+                else:
+                    person = self.get_or_create_person(
+                        full_name=full_name,
+                        department=department,
+                    )
+
+                ProjectPerson.objects.update_or_create(
                     project=project,
                     person=person,
                     role=role,
-                    display_order=person_data.get("display_order") or 1,
+                    defaults={
+                        "display_order": person_data.get("display_order", 1),
+                    },
                 )
-    
             keywords = [value for value in (payload.get("keywords") or []) if str(value).strip()]
-            for keyword_name in keywords:
-                keyword, _ = Keyword.objects.get_or_create(name=str(keyword_name).strip())
-                ProjectKeyword.objects.get_or_create(project=project, keyword=keyword)
-    
+            if keywords:
+                for keyword_name in keywords:
+                    keyword_name = str(keyword_name).strip()
+                    if not keyword_name:
+                        continue
+
+                    keyword, _ = Keyword.objects.get_or_create(name=keyword_name)
+                    ProjectKeyword.objects.get_or_create(
+                        project=project,
+                        keyword=keyword,
+                    )
+                    
             domains = []
             for domain_name in payload.get("domains") or []:
                 if str(domain_name).strip():
@@ -513,13 +646,13 @@ class JobPublishAPIView(APIView):
                 )
     
             appendices = payload.get("appendices") or []
-            mime_type, _ = mimetypes.guess_type(job.file.name)
+           
             if job.file:
                 mime_type, _ = mimetypes.guess_type(job.file.name)
                 ProjectAsset.objects.create(
                     project=project,
                     asset_type="Report",
-                    file=job.file,
+                    file=job.file.name,
                     mime_type=mime_type or "application/pdf",
                     file_size=job.file.size,
                 )

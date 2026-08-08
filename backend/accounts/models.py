@@ -3,6 +3,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from .managers import UserManager
 from organization.models import Department, ResearchGroup
+from ingestion.pipeline.utils.text_cleaners import normalize_person_name
 
 class UserRole(models.TextChoices):
     STUDENT = "student", "Student"
@@ -52,7 +53,9 @@ class Person(models.Model):
     full_name = models.CharField(max_length=255)
 
     email = models.EmailField(
-        unique=True
+        unique=True,
+        null=True,
+        blank=True,
     )
 
     department = models.ForeignKey(
@@ -64,6 +67,11 @@ class Person(models.Model):
 
     class Meta:
         db_table="persons"
+
+    def save(self, *args, **kwargs):
+        if self.full_name:
+            self.full_name = normalize_person_name(self.full_name)
+        super().save(*args, **kwargs)
         
     def __str__(self):
             return self.full_name

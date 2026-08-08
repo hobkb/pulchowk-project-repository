@@ -5,6 +5,7 @@ from django.conf import settings
 from django.db import models, transaction
 
 from .models import User, Person, Student, Faculty, UserRole
+from ingestion.pipeline.utils.text_cleaners import normalize_person_name
 
 
 class GoogleAuthenticationError(Exception):
@@ -181,9 +182,10 @@ class ProfileService:
         email = user.email
         derived_roll = ProfileService.extract_roll_number_from_email(email)
         existing_student = Student.objects.filter(email=email).first()
+        full_name = normalize_person_name(data["full_name"])
 
         if existing_student:
-            existing_student.full_name = data["full_name"]
+            existing_student.full_name = full_name
             existing_student.academic_level = data["academic_level"]
             existing_student.roll_number = derived_roll
             if data.get("department_id"):
@@ -193,7 +195,7 @@ class ProfileService:
         else:
             student = Student.objects.create(
                 email=email,
-                full_name=data["full_name"],
+                full_name=full_name,
                 academic_level=data["academic_level"],
                 roll_number=derived_roll,
                 department_id=data.get("department_id"),
@@ -214,6 +216,7 @@ class ProfileService:
         existing_faculty = None
         if faculty_id:
             existing_faculty = Faculty.objects.filter(id=faculty_id).first()
+        full_name = normalize_person_name(data["full_name"].strip())
 
         if not existing_faculty:
             existing_faculty = Faculty.objects.filter(

@@ -2,6 +2,7 @@
 from django.db import models
 from django.conf import settings
 from organization.models import Department, ResearchGroup
+from ingestion.pipeline.utils.text_cleaners import normalize_canonical_section, normalize_person_name, normalize_section_title
 
 class Project(models.Model):
     PROJECT_TYPES = [
@@ -34,13 +35,13 @@ class Project(models.Model):
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default="Processing")
     language = models.CharField(max_length=50, default="English")
     thumbnail = models.ImageField(upload_to="thumbnails/",blank=True,null=True,)
-    github_url = models.URLField(blank=True)
-    doi_url = models.URLField(blank=True)
-    publication_url = models.URLField(blank=True)
-    demo_url = models.URLField(blank=True)
+    github_url = models.URLField(blank=True, null=True)
+    doi_url = models.URLField(blank=True, null=True)
+    publication_url = models.URLField(blank=True, null=True)
+    demo_url = models.URLField(blank=True, null=True)
     submitted_at = models.DateTimeField(blank=True, null=True)
     approved_at = models.DateTimeField(blank=True, null=True)
-    department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name="projects")
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name="projects", null=True, blank=True)
     research_group = models.ForeignKey(ResearchGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name="projects")
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="created_projects")
     extraction_verified_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="verified_projects")
@@ -104,13 +105,6 @@ class ProjectPerson(models.Model):
 class ProjectSection(models.Model):
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="sections")
-    parent = models.ForeignKey(
-        "self",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="children",
-    )
     heading = models.CharField(max_length=255)
     canonical_section = models.CharField(max_length=100, blank=True, null=True)
     heading_level = models.SmallIntegerField()
@@ -125,6 +119,13 @@ class ProjectSection(models.Model):
     class Meta:
         db_table = "project_sections"
         ordering = ["display_order"]
+
+    def save(self, *args, **kwargs):
+        if self.heading:
+            self.heading = normalize_section_title(self.heading)
+        if self.canonical_section:
+            self.canonical_section = normalize_canonical_section(self.canonical_section)
+        super().save(*args, **kwargs)
 
 
 class ProjectReference(models.Model):
