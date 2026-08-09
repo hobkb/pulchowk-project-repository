@@ -33,6 +33,17 @@ export const authApi = {
     logout: () => request("accounts/logout/", { method: "POST"}),
 };
 
+export const projectsApi = {
+    // Verified (Published) projects only — see docs/backend/actions.md
+    list: (params = {}) => {
+        const qs = new URLSearchParams(
+            Object.entries(params).filter(([, v]) => v != null && v !== "")
+        ).toString();
+        return request(`repository/projects/${qs ? `?${qs}` : ""}`, {method: "GET"});
+    },
+    detail: (id) => request(`repository/projects/${id}/`, {method: "GET"}),
+};
+
 
 
 // when access token is expired refresh token API is called

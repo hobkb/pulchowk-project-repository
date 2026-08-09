@@ -1,35 +1,113 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { mockProjects } from "../api/mockProjects";
+import { projectsApi } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faFilter, faBookOpen, faUsers, faFolderOpen, faCheckCircle, faClock, faExclamationCircle } from "@fortawesome/free-solid-svg-icons";
+import { faBookOpen, faUsers, faFolderOpen, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
+
+const PAGE_SIZE = 6;
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCluster, setSelectedCluster] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
 
-  const isAdmin = user?.role === "admin";
+  useEffect(() => {
+    let cancelled = false;
+    projectsApi
+      .list()
+      .then((res) => {
+        if (!cancelled) setProjects(res.data || []);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message || "Failed to load projects");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  // Filter projects by search query and cluster
-  const filteredProjects = mockProjects.filter((p) => {
-    const matchesSearch =
-      p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.supervisor.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.authors.some((a) => a.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      p.technologies.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
 
-    const matchesCluster = selectedCluster === "all" || p.cluster === selectedCluster;
+  const filteredProjects = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return projects;
+    return projects.filter((p) => {
+      const title = (p.title || "").toLowerCase();
+      const supervisor = (p.supervisor || "").toLowerCase();
+      const authorMatch = (p.authors || []).some((a) =>
+        (a.name || "").toLowerCase().includes(q)
+      );
+      const keywordMatch = (p.technologies || []).some((t) =>
+        (t || "").toLowerCase().includes(q)
+      );
+      return (
+        title.includes(q) ||
+        supervisor.includes(q) ||
+        authorMatch ||
+        keywordMatch
+      );
+    });
+  }, [projects, searchQuery]);
 
-    // General users only see approved projects, admins see all
-    const matchesRoleVisibility = isAdmin ? true : p.status === "approved";
+  const totalPages = Math.max(1, Math.ceil(filteredProjects.length / PAGE_SIZE));
+  const currentProjects = useMemo(
+    () =>
+      filteredProjects.slice(
+        (currentPage - 1) * PAGE_SIZE,
+        currentPage * PAGE_SIZE
+      ),
+    [filteredProjects, currentPage]
+  );
 
-    return matchesSearch && matchesCluster && matchesRoleVisibility;
-  });
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(1);
+  }, [currentPage, totalPages]);
 
-  // Extract unique clusters for filter tabs
-  const clusters = ["all", ...new Set(mockProjects.map((p) => p.cluster))];
+  const clusters = useMemo(() => {
+    return ["all", ...new Set(projects.map((p) => p.cluster).filter(Boolean))];
+  }, [projects]);
+
+  const supervisorCount = useMemo(() => {
+    const set = new Set();
+    projects.forEach((p) => (p.supervisors || []).forEach((s) => set.add(s)));
+    return set.size;
+  }, [projects]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-8">
+        <div className="h-8 bg-border-default/50 rounded animate-pulse w-72"></div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-20 bg-border-default/40 rounded-md animate-pulse"></div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i} className="h-52 bg-surface-raised border border-border-subtle rounded-lg animate-pulse"></div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-16 border border-dashed border-border-subtle rounded-lg">
+        <p className="text-body text-text-secondary">Failed to load projects.</p>
+        <p className="text-body-sm text-text-tertiary mt-1">{error}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -51,7 +129,7 @@ export default function Dashboard() {
           </div>
           <div>
             <p className="text-micro font-mono uppercase tracking-wider text-text-tertiary">Total Indexed</p>
-            <p className="text-xl font-bold text-text-primary mt-0.5">{mockProjects.length} Projects</p>
+            <p className="text-xl font-bold text-text-primary mt-0.5">{projects.length} Projects</p>
           </div>
         </div>
         <div className="bg-surface-raised border border-border-subtle rounded-md p-5 flex items-center gap-4">
@@ -59,7 +137,7 @@ export default function Dashboard() {
             <FontAwesomeIcon icon={faFolderOpen} className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-micro font-mono uppercase tracking-wider text-text-tertiary">Research Clusters</p>
+            <p className="text-micro font-mono uppercase tracking-wider text-text-tertiary">Research Domains</p>
             <p className="text-xl font-bold text-text-primary mt-0.5">{clusters.length - 1} Domains</p>
           </div>
         </div>
@@ -69,22 +147,25 @@ export default function Dashboard() {
           </div>
           <div>
             <p className="text-micro font-mono uppercase tracking-wider text-text-tertiary">Indexed Supervisors</p>
-            <p className="text-xl font-bold text-text-primary mt-0.5">3 Academic Faculty</p>
+            <p className="text-xl font-bold text-text-primary mt-0.5">{supervisorCount} Academic Faculty</p>
           </div>
         </div>
       </div>
 
-      {/* Cluster Selector Tabs */}
+      {/* DEFERRED — cluster filter tabs. No domain/cluster data is ingested yet
+          (16 published projects all have empty clusters), so the tabs are
+          disabled to avoid rendering an empty filter bar. Re-enable once
+          project_domains / research_group carry real data.
       <div className="flex flex-wrap gap-1.5 items-center border-y border-border-subtle py-4">
-<span className="text-micro font-mono uppercase tracking-wider text-text-tertiary flex items-center gap-1.5 mr-2">
-            <FontAwesomeIcon icon={faFilter} className="h-3.5 w-3.5" />
-            Cluster:
-          </span>
+        <span className="text-micro font-mono uppercase tracking-wider text-text-tertiary flex items-center gap-1.5 mr-2">
+          <FontAwesomeIcon icon={faFilter} className="h-3.5 w-3.5" />
+          Cluster:
+        </span>
         {clusters.map((cluster) => (
           <button
             key={cluster}
             onClick={() => setSelectedCluster(cluster)}
-            className={`px-3 py-1 text-micro rounded-sm border capitalize cursor-pointer transition-all duration-150 ${
+            className={`px-3 py-1 rounded-sm border capitalize cursor-pointer transition-all duration-150 ${
               selectedCluster === cluster
                 ? "bg-accent-primary/10 border-accent-primary/30 text-accent-primary font-semibold"
                 : "bg-surface-raised border-border-subtle text-text-secondary hover:text-text-primary"
@@ -94,6 +175,7 @@ export default function Dashboard() {
           </button>
         ))}
       </div>
+      */}
 
       {/* Projects Grid Display */}
       {filteredProjects.length === 0 ? (
@@ -101,8 +183,9 @@ export default function Dashboard() {
           <p className="text-body text-text-secondary">No projects matching the query or filter parameters.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredProjects.map((p) => (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {currentProjects.map((p) => (
             <Link
               key={p.id}
               to={`/projects/${p.id}`}
@@ -118,19 +201,6 @@ export default function Dashboard() {
                     {p.year}
                   </span>
                 </div>
-
-                {/* Admin-only review indicator badge - ICONS ONLY, no text */}
-                {isAdmin && (
-                  <span className={`flex items-center gap-1 text-micro font-mono uppercase tracking-wider px-2 py-0.5 rounded-sm border ${
-                    p.status === "approved"
-                      ? "bg-success-emerald/10 border-success-emerald/20 text-success-emerald"
-                      : p.status === "pending"
-                      ? "bg-warning-amber/10 border-warning-amber/20 text-warning-amber"
-                      : "bg-error-red/10 border-error-red/20 text-error-red"
-                  }`}>
-                    {p.status === "approved" ? <FontAwesomeIcon icon={faCheckCircle} className="h-4 w-4" /> : p.status === "pending" ? <FontAwesomeIcon icon={faClock} className="h-4 w-4" /> : <FontAwesomeIcon icon={faExclamationCircle} className="h-4 w-4" />}
-                  </span>
-                )}
               </div>
 
               {/* Title */}
@@ -148,7 +218,7 @@ export default function Dashboard() {
                 <div className="flex justify-between items-center">
                   <span>
                     <span className="text-text-tertiary">Supervisor: </span>
-                    <span className="text-text-primary font-medium">{p.supervisor}</span>
+                    <span className="text-text-primary font-medium">{p.supervisor || "—"}</span>
                   </span>
                   <span className="text-accent-primary text-xs font-semibold group-hover:translate-x-1 transition-transform">
                     →
@@ -156,21 +226,47 @@ export default function Dashboard() {
                 </div>
 
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {p.technologies.slice(0, 3).map((t) => (
+                  {(p.technologies || []).slice(0, 3).map((t) => (
                     <span key={t} className="bg-surface-sunken px-2 py-0.5 rounded-sm text-micro font-mono text-text-tertiary">
                       {t}
                     </span>
                   ))}
-                  {p.technologies.length > 3 && (
+                  {(p.technologies || []).length > 3 && (
                     <span className="bg-surface-sunken px-2 py-0.5 rounded-sm text-micro font-mono text-text-tertiary">
-                      +{p.technologies.length - 3} more
+                      +{(p.technologies || []).length - 3} more
                     </span>
                   )}
                 </div>
               </div>
             </Link>
           ))}
-        </div>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between border-t border-border-subtle pt-4 text-micro">
+              <span className="font-mono text-text-tertiary">
+                Page {currentPage} of {totalPages}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-border-default bg-surface-raised text-text-secondary hover:text-text-primary hover:border-border-strong disabled:opacity-40 transition-all cursor-pointer disabled:cursor-not-allowed"
+                >
+                  <FontAwesomeIcon icon={faChevronLeft} className="h-3 w-3" /> Previous
+                </button>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-border-default bg-surface-raised text-text-secondary hover:text-text-primary hover:border-border-strong disabled:opacity-40 transition-all cursor-pointer disabled:cursor-not-allowed"
+                >
+                  Next <FontAwesomeIcon icon={faChevronRight} className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

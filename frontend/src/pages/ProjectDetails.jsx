@@ -1,24 +1,16 @@
 import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { getProjectById, mockProjects } from "../api/mockProjects";
+import { projectsApi } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { 
-  faEnvelope, 
-  faQuoteLeft, 
-  faShareNodes, 
-  faDownload, 
-  faCheck, 
-  faXmark, 
-  faUser, 
-  faFileLines, 
-  faCode, 
-  faArrowUpRightFromSquare, 
-  faChevronRight, 
-  faCircleInfo, 
-  faCheckCircle, 
-  faCircleXmark, 
-  faCopy 
+import {
+  faEnvelope,
+  faShareNodes,
+  faDownload,
+  faXmark,
+  faFileLines,
+  faArrowUpRightFromSquare,
+  faChevronRight,
 } from "@fortawesome/free-solid-svg-icons";
 
 export default function ProjectDetails() {
@@ -28,36 +20,61 @@ export default function ProjectDetails() {
   const isAdmin = user?.role === "admin";
 
   const [project, setProject] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [similarProjects, setSimilarProjects] = useState([]);
   const [loadingSimilar, setLoadingSimilar] = useState(true);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  const [isCiteOpen, setIsCiteOpen] = useState(false);
   const [copiedShare, setCopiedShare] = useState(false);
-  const [copiedCitation, setCopiedCitation] = useState(false);
-  
-  // Custom states for admin reviews
-  const [reviewStatus, setReviewStatus] = useState(null);
 
   useEffect(() => {
-    const proj = getProjectById(id);
-    if (!proj) {
-      navigate("/dashboard");
-      return;
-    }
-    setProject(proj);
-    setReviewStatus(proj.status);
-    setIsCiteOpen(false);
-    
-    // Simulate loading similar projects rail
+    let cancelled = false;
+    setLoading(true);
     setLoadingSimilar(true);
-    const timer = setTimeout(() => {
-      const filtered = mockProjects.filter((p) => p.id !== id).slice(0, 2);
-      setSimilarProjects(filtered);
-      setLoadingSimilar(false);
-    }, 600);
 
-    return () => clearTimeout(timer);
+    projectsApi
+      .detail(id)
+      .then((res) => {
+        if (cancelled) return;
+        const proj = res.data;
+        if (!proj) {
+          navigate("/dashboard");
+          return;
+        }
+        setProject(proj);
+
+        return projectsApi.list().then((listRes) => {
+          if (cancelled) return;
+          const filtered = (listRes.data || [])
+            .filter((p) => p.id !== proj.id)
+            .slice(0, 2);
+          setSimilarProjects(filtered);
+        });
+      })
+      .catch(() => {
+        if (!cancelled) navigate("/dashboard");
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+          setLoadingSimilar(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [id, navigate]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-6 animate-pulse">
+        <div className="h-4 bg-border-default/50 rounded w-1/3"></div>
+        <div className="h-10 bg-border-default/40 rounded w-2/3"></div>
+        <div className="h-40 bg-border-default/30 rounded-md"></div>
+        <div className="h-64 bg-border-default/30 rounded-md"></div>
+      </div>
+    );
+  }
 
   if (!project) return null;
 
@@ -67,31 +84,8 @@ export default function ProjectDetails() {
     setTimeout(() => setCopiedShare(false), 2000);
   };
 
-  const bibtex = `@thesis{pulchowk_${project.id},
-  title = {${project.title}},
-  author = {${project.authors.map(a => a.name).join(' and ')}},
-  school = {Institute of Engineering, Pulchowk Campus},
-  year = {${project.year}},
-  department = {${project.department}}
-}`;
-
-  const handleCopyCitation = () => {
-    navigator.clipboard.writeText(bibtex);
-    setCopiedCitation(true);
-    setTimeout(() => setCopiedCitation(false), 2000);
-  };
-
-  const handleApprove = () => {
-    setReviewStatus("approved");
-    // Show success alert/toast locally
-  };
-
-  const handleReject = () => {
-    setReviewStatus("rejected");
-  };
-
   // Generate mailto link
-  const validAuthorsWithEmails = project.authors.filter(a => a.email);
+  const validAuthorsWithEmails = (project.authors || []).filter(a => a.email);
   const mailtoEmails = validAuthorsWithEmails.map(a => a.email).join(",");
   const mailtoSubject = encodeURIComponent(`[Pulchowk Repository] Request for Project Report: ${project.title}`);
   const mailtoBody = encodeURIComponent(
@@ -99,9 +93,10 @@ export default function ProjectDetails() {
   );
   const mailtoLink = `mailto:${mailtoEmails}?subject=${mailtoSubject}&body=${mailtoBody}`;
 
+  const isVerified = project.status === "Published";
+
   return (
     <div className="flex flex-col gap-6">
-      
       {/* Breadcrumb Navigation per Chapter 17.1 */}
       <nav className="flex items-center gap-1.5 text-xs text-text-tertiary">
         <Link to="/dashboard" className="hover:text-text-secondary transition-colors">
@@ -113,58 +108,24 @@ export default function ProjectDetails() {
         <span className="text-text-secondary truncate max-w-[200px] sm:max-w-xs">{project.title}</span>
       </nav>
 
-      {/* Admin review toolbar per Chapter 21 */}
-      {isAdmin && reviewStatus === "pending" && (
-        <div className="bg-warning-amber/10 border border-warning-amber/20 rounded-md p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-2.5">
-            <FontAwesomeIcon icon={faCircleInfo} className="h-5 w-5 text-warning-amber shrink-0 mt-0.5" />
-            <div>
-              <p className="text-xs font-semibold text-text-primary">Project Pending Approval</p>
-              <p className="text-[11px] text-text-secondary mt-0.5">
-                This project has been submitted and is awaiting administrative approval before it appears in public catalog searches.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={handleApprove}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-success-emerald text-text-inverse hover:bg-success-emerald/90 text-xs font-semibold rounded-sm transition-colors cursor-pointer"
-            >
-              <FontAwesomeIcon icon={faCheck} className="h-3.5 w-3.5" /> Approve
-            </button>
-            <button
-              onClick={handleReject}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-error-red text-text-primary hover:bg-error-red/90 text-xs font-semibold rounded-sm transition-colors cursor-pointer"
-            >
-              <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" /> Reject
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Main Grid Layout: left 2 columns, right 1 column */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
         {/* Left Side: Title, Info, Abstract, Preview, Similar Projects */}
         <div className="lg:col-span-2 flex flex-col gap-6">
-          
           {/* Header Title Section */}
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="bg-surface-raised border border-border-default px-2 py-0.5 rounded-sm text-xs font-mono text-text-secondary">
-                {project.year}
-              </span>
-              <span className="bg-surface-raised border border-border-default px-2 py-0.5 rounded-sm text-xs font-mono text-text-secondary">
-                {project.cluster}
-              </span>
+              {(project.year || project.batch) && (
+                <span className="bg-surface-raised border border-border-default px-2 py-0.5 rounded-sm text-xs font-mono text-text-secondary">
+                  Batch {project.year || project.batch}
+                </span>
+              )}
               <span className={`border px-2 py-0.5 rounded-sm text-xs font-mono capitalize ${
-                reviewStatus === "approved"
+                isVerified
                   ? "bg-success-emerald/10 border-success-emerald/20 text-success-emerald"
-                  : reviewStatus === "pending"
-                  ? "bg-warning-amber/10 border-warning-amber/20 text-warning-amber"
-                  : "bg-error-red/10 border-error-red/20 text-error-red"
+                  : "bg-warning-amber/10 border-warning-amber/20 text-warning-amber"
               }`}>
-                {reviewStatus}
+                {isVerified ? "Verified" : project.status}
               </span>
             </div>
 
@@ -176,39 +137,34 @@ export default function ProjectDetails() {
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-text-secondary">
               <div className="flex items-center gap-1">
                 <span className="font-semibold text-text-primary">Authors:</span>
-                {project.authors.map((a, idx) => (
-                  <span key={a.rollNumber}>
-                    {a.name} <span className="font-mono text-text-tertiary text-[10px]">({a.rollNumber})</span>
+                {(project.authors || []).map((a, idx) => (
+                  <span key={`${a.name}-${idx}`}>
+                    {a.name}
+                    {a.rollNumber ? (
+                      <span className="font-mono text-text-tertiary text-[10px]"> ({a.rollNumber})</span>
+                    ) : null}
                     {idx < project.authors.length - 1 ? ", " : ""}
                   </span>
                 ))}
               </div>
-              <div>•</div>
-              <div>
-                <span className="font-semibold text-text-primary">Supervisor:</span> {project.supervisor}
-              </div>
+              {project.supervisor && (
+                <>
+                  <div>•</div>
+                  <div>
+                    <span className="font-semibold text-text-primary">Supervisor:</span> {project.supervisor}
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
           {/* Abstract Block */}
           <div className="bg-surface-raised border border-border-subtle rounded-md p-6 flex flex-col gap-4">
             <h2 className="text-sm font-semibold text-text-primary uppercase tracking-wider">Abstract</h2>
-            <p className="text-sm text-text-secondary leading-relaxed max-w-prose whitespace-pre-line">
+            <p className="text-sm text-text-secondary leading-relaxed max-w-prose">
               {project.abstract}
             </p>
           </div>
-
-          {/* Results Block */}
-          {project.resultsSummary && (
-            <div className="bg-surface-raised border border-border-subtle rounded-md p-6 flex flex-col gap-4">
-              <h2 className="text-sm font-semibold text-text-primary uppercase tracking-wider">Key Findings & Results</h2>
-              <div className="text-sm text-text-secondary leading-relaxed space-y-2">
-                {project.resultsSummary.split('\n').map((line, idx) => (
-                  <p key={idx} className="pl-4 border-l border-accent-primary/40">{line}</p>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* PDF Viewer Area - Gated by Role per Chapter 17.5 */}
           <div className="bg-surface-raised border border-border-subtle rounded-md overflow-hidden flex flex-col">
@@ -222,7 +178,7 @@ export default function ProjectDetails() {
               </span>
             </div>
 
-            {isAdmin ? (
+            {isAdmin && project.pdfUrl ? (
               /* Full interactive PDF viewer strictly for Admins */
               <div className="aspect-[4/5] sm:aspect-[16/10] bg-surface-sunken w-full relative">
                 <iframe
@@ -299,23 +255,21 @@ export default function ProjectDetails() {
                       {p.title}
                     </h4>
                     <div className="text-[10px] text-text-secondary mt-auto">
-                      Supervisor: {p.supervisor}
+                      Supervisor: {p.supervisor || "—"}
                     </div>
                   </Link>
                 ))}
               </div>
             )}
           </div>
-
         </div>
 
         {/* Right Side: Quick Actions Panel & Metadata Detail Table */}
         <div className="flex flex-col gap-6">
-          
           {/* Actions Card */}
           <div className="bg-surface-raised border border-border-subtle rounded-md p-6 flex flex-col gap-4">
             <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider">Actions</h3>
-            
+
             <div className="flex flex-col gap-2">
               {!isAdmin && (
                 <button
@@ -326,7 +280,7 @@ export default function ProjectDetails() {
                 </button>
               )}
 
-              {isAdmin && (
+              {isAdmin && project.pdfUrl && (
                 <a
                   href={project.pdfUrl}
                   download
@@ -340,100 +294,81 @@ export default function ProjectDetails() {
                 onClick={handleShare}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-surface-sunken hover:bg-surface-hover border border-border-default hover:border-border-strong text-text-primary text-xs font-semibold rounded-sm transition-all cursor-pointer"
               >
-                <FontAwesomeIcon icon={faShareNodes} className="h-4 w-4" /> 
+                <FontAwesomeIcon icon={faShareNodes} className="h-4 w-4" />
                 {copiedShare ? "URL Copied!" : "Share Link"}
               </button>
-
-              <div className="relative">
-                <button
-                  onClick={() => setIsCiteOpen(!isCiteOpen)}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-surface-sunken hover:bg-surface-hover border border-border-default hover:border-border-strong text-text-primary text-xs font-semibold rounded-sm transition-all cursor-pointer"
-                >
-                  <FontAwesomeIcon icon={faQuoteLeft} className="h-4 w-4" /> Cite Project
-                </button>
-
-                {/* Citation Popover Dropdown */}
-                {isCiteOpen && (
-                  <div className="absolute right-0 left-0 mt-2 bg-surface-overlay border border-border-strong rounded-md p-4 shadow-xl z-20 flex flex-col gap-3">
-                    <div className="flex items-center justify-between border-b border-border-subtle pb-2">
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-text-secondary font-semibold">BibTeX Citation</span>
-                      <button 
-                        onClick={handleCopyCitation}
-                        className="text-[10px] font-mono text-accent-primary hover:underline flex items-center gap-1 cursor-pointer"
-                      >
-                        <FontAwesomeIcon icon={faCopy} className="h-3 w-3" /> {copiedCitation ? "Copied!" : "Copy"}
-                      </button>
-                    </div>
-                    <pre className="text-[10px] font-mono bg-surface-sunken border border-border-subtle p-2 rounded text-text-secondary overflow-x-auto whitespace-pre-wrap select-all">
-                      {bibtex}
-                    </pre>
-                  </div>
-                )}
-              </div>
             </div>
           </div>
 
           {/* Metadata Card Table */}
           <div className="bg-surface-raised border border-border-subtle rounded-md p-6 flex flex-col gap-4">
             <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider">Metadata Details</h3>
-            
+
             <div className="divide-y divide-border-subtle text-xs">
-              <div className="py-2.5 flex justify-between">
-                <span className="text-text-secondary">Department</span>
-                <span className="font-mono text-text-primary uppercase">{project.department}</span>
-              </div>
-              <div className="py-2.5 flex justify-between">
-                <span className="text-text-secondary">Cluster</span>
-                <span className="text-text-primary font-medium">{project.cluster}</span>
-              </div>
-              <div className="py-2.5 flex justify-between">
-                <span className="text-text-secondary">Year</span>
-                <span className="font-mono text-text-primary">{project.year}</span>
+              <div className="py-2.5 flex justify-between gap-3">
+                <span className="text-text-secondary shrink-0">Department</span>
+                <span className="font-mono text-text-primary text-right break-words">{project.department}</span>
               </div>
               <div className="py-2.5 flex flex-col gap-1.5">
-                <span className="text-text-secondary">Technologies</span>
-                <div className="flex flex-wrap gap-1.5 mt-0.5">
-                  {project.technologies.map((t) => (
-                    <span 
-                      key={t}
-                      className="bg-surface-sunken border border-border-default px-2 py-0.5 rounded-sm text-[10px] font-mono text-text-secondary"
-                    >
-                      {t}
-                    </span>
-                  ))}
+                <span className="text-text-secondary">Keywords</span>
+                {(project.technologies || []).length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5 mt-0.5">
+                    {(project.technologies || []).map((t) => (
+                      <span
+                        key={t}
+                        className="bg-surface-sunken border border-border-default px-2 py-0.5 rounded-sm text-[10px] font-mono text-text-secondary"
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-text-tertiary italic">No keywords indexed</span>
+                )}
+              </div>
+              <div className="py-2.5 flex justify-between">
+                <span className="text-text-secondary">Batch</span>
+                <span className="font-mono text-text-primary">{project.batch || "—"}</span>
+              </div>
+              {(project.supervisors || []).length > 0 && (
+                <div className="py-2.5 flex flex-col gap-1.5">
+                  <span className="text-text-secondary">Supervisors</span>
+                  <div className="flex flex-col gap-1 font-mono text-[11px] text-text-primary mt-0.5">
+                    {(project.supervisors || []).map((s) => (
+                      <span key={s}>{s}</span>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
               <div className="py-2.5 flex flex-col gap-1.5">
-                <span className="text-text-secondary">Roll Numbers</span>
+                <span className="text-text-secondary">Authors</span>
                 <div className="flex flex-col gap-1 font-mono text-[11px] text-text-primary mt-0.5">
-                  {project.authors.map((a) => (
-                    <div key={a.rollNumber} className="flex justify-between items-center bg-surface-sunken/40 px-2 py-1 border border-border-subtle/50 rounded-sm">
+                  {(project.authors || []).map((a) => (
+                    <div key={`${a.name}-${a.email}`} className="flex justify-between items-center bg-surface-sunken/40 px-2 py-1 border border-border-subtle/50 rounded-sm">
                       <span>{a.name}</span>
-                      <span className="text-text-secondary">{a.rollNumber}</span>
+                      <span className="text-text-secondary">{a.rollNumber || "—"}</span>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
           </div>
-
         </div>
-
       </div>
 
       {/* Request Report Modal Dialog per Chapter 17.5 */}
       {isReportModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-surface-canvas/80 backdrop-blur-sm p-4">
-          <div 
+          <div
             className="bg-surface-raised border border-border-strong rounded-md w-full max-w-lg shadow-2xl relative overflow-hidden flex flex-col animate-fade-in"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="absolute top-0 left-0 right-0 h-[2px] bg-accent-primary"></div>
-            
+
             {/* Modal Header */}
             <div className="border-b border-border-subtle px-6 py-4 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider">Request Report Access</h3>
-              <button 
+              <button
                 onClick={() => setIsReportModalOpen(false)}
                 className="text-text-secondary hover:text-text-primary p-1 rounded-md hover:bg-surface-hover transition-colors cursor-pointer"
               >
@@ -449,14 +384,14 @@ export default function ProjectDetails() {
 
               {/* Author Emails List */}
               <div className="flex flex-col gap-2.5">
-                {project.authors.map((a) => (
-                  <div key={a.rollNumber} className="flex flex-col sm:flex-row sm:items-center justify-between bg-surface-sunken border border-border-default rounded p-3 gap-2">
+                {(project.authors || []).map((a) => (
+                  <div key={`${a.name}-${a.email}`} className="flex flex-col sm:flex-row sm:items-center justify-between bg-surface-sunken border border-border-default rounded p-3 gap-2">
                     <div>
                       <p className="font-semibold text-text-primary text-xs">{a.name}</p>
-                      <p className="font-mono text-text-tertiary text-[10px] mt-0.5">{a.rollNumber}</p>
+                      <p className="font-mono text-text-tertiary text-[10px] mt-0.5">{a.rollNumber || ""}</p>
                     </div>
                     {a.email ? (
-                      <a 
+                      <a
                         href={`mailto:${a.email}`}
                         className="text-xs font-mono text-accent-primary hover:underline flex items-center gap-1"
                       >
@@ -495,11 +430,9 @@ export default function ProjectDetails() {
                 </button>
               )}
             </div>
-
           </div>
         </div>
       )}
-
     </div>
   );
 }
