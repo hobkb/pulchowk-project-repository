@@ -5,12 +5,13 @@ from django.conf import settings
 
 class IngestionJob(models.Model):
     class Status(models.TextChoices):
-        PENDING = "PENDING", "Pending"
-        PROCESSING = "PROCESSING", "Processing"
-        EXTRACTED = "EXTRACTED", "Extracted"
-        DUPLICATE = "DUPLICATE", "Duplicate"
-        FAILED = "FAILED", "Failed"
-        VERIFIED = "VERIFIED", "Verified"
+        PENDING          = "PENDING",          "Pending"
+        PROCESSING       = "PROCESSING",       "Processing"
+        EXTRACTED        = "EXTRACTED",        "Extracted"
+        DUPLICATE        = "DUPLICATE",        "Duplicate"
+        FAILED           = "FAILED",           "Failed"
+        SECTIONS_PENDING = "SECTIONS_PENDING", "Sections Pending"
+        VERIFIED         = "VERIFIED",         "Verified"
 
 
     file = models.FileField(upload_to="ingestion_pdfs/")

@@ -159,9 +159,39 @@ class ProjectListSerializer(serializers.ModelSerializer):
         return ProjectPersonSerializer(people, many=True).data
 
     def get_supervisors(self, obj):
-        people = [pp for pp in self.get_people(obj) if pp.role in PERSON_FACULTY_ROLES]
-        return [pp.person.full_name for pp in people]
+        people = [
+            pp for pp in self.get_people(obj)
+            if pp.role in PERSON_FACULTY_ROLES
+        ]
 
+        designation_map = {
+            "Assistant Professor": "Asst. Prof.",
+            "Associate Professor": "Assoc. Prof.",
+            "Professor": "Prof.",
+        }
+
+        supervisors = []
+
+        for pp in people:
+            
+            person = pp.person
+            faculty = getattr(person, "faculty", None)
+
+            designation = ""
+            title = ""
+
+            if faculty:
+                designation = designation_map.get(
+                    faculty.designation,
+                    faculty.designation or ""
+                )
+                title = faculty.title or ""
+
+            parts = [designation, title, person.full_name]
+            supervisors.append(" ".join(part for part in parts if part).strip())
+
+        return supervisors
+    
     def get_supervisor(self, obj):
         names = self.get_supervisors(obj)
         return ", ".join(names)

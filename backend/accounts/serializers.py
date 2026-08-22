@@ -9,6 +9,18 @@ class FacultySerializer(serializers.ModelSerializer):
         fields = ("id", "full_name", "title", "designation", "department_id", "email")
 
 
+class FacultyCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Faculty
+        fields = ("id", "full_name", "title", "designation", "department")
+
+
+class StudentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Student
+        fields = ("id", "full_name", "roll_number", "academic_level", "department_id", "email")
+
+
 class StudentOnboardingSerializer(serializers.Serializer):
     """
     Serializer for student onboarding profile completion.
@@ -45,6 +57,9 @@ class UserSerializer(serializers.ModelSerializer):
     """
     is_onboarded = serializers.SerializerMethodField()
     inferred_role = serializers.SerializerMethodField()
+    is_department_admin = serializers.SerializerMethodField()
+    is_staff = serializers.BooleanField(read_only=True)
+    is_superuser = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = User
@@ -57,6 +72,9 @@ class UserSerializer(serializers.ModelSerializer):
             "person",
             "is_onboarded",
             "inferred_role",
+            "is_department_admin",
+            "is_staff",
+            "is_superuser",
         )        
         read_only_fields = fields
 
@@ -65,6 +83,12 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_inferred_role(self, obj) -> str:
         return str(ProfileService.infer_role_from_email(obj.email))
+
+    def get_is_department_admin(self, obj) -> bool:
+        if not obj or not obj.person_id:
+            return False
+        from organization.models import DepartmentAdmin
+        return DepartmentAdmin.objects.filter(faculty_id=obj.person_id, is_active=True).exists()
         
 
 class GoogleLoginSerializer(serializers.Serializer):

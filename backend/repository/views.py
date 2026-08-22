@@ -82,3 +82,43 @@ class ProjectDetailView(APIView):
             data=serializer.data,
             message="Project retrieved successfully.",
         )
+
+
+class ProjectChoicesView(APIView):
+    """
+    Public endpoint exposing backend-defined choices and batch constraints.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        from datetime import datetime
+        academic_levels = [
+            {"value": choice[0], "label": choice[1]}
+            for choice in Project.ACADEMIC_LEVELS
+        ]
+        project_types = [
+            {"value": choice[0], "label": choice[1]}
+            for choice in Project.PROJECT_TYPES
+        ]
+
+        now = datetime.now()
+        current_bs_year = now.year + (57 if now.month >= 4 else 56)
+        max_batch_num = current_bs_year - 2001
+
+        min_batch = 65
+        batch_options = [f"{b:03d}" for b in range(min_batch, max_batch_num + 1)]
+
+        data = {
+            "academic_levels": academic_levels,
+            "project_types": project_types,
+            "batch": {
+                "min": f"{min_batch:03d}",
+                "max": f"{max_batch_num:03d}",
+                "options": batch_options,
+            },
+        }
+
+        return success_response(
+            data=data,
+            message="Project metadata choices retrieved successfully.",
+        )

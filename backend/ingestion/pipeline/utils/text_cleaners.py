@@ -52,7 +52,9 @@ def normalize_line(text: str) -> str:
 
 
 def clean_roll_number(roll: str) -> str:
-    return re.sub(r"[^A-Za-z0-9]", "", roll).upper()
+    roll = re.sub(r"[^A-Za-z0-9]", "", roll).upper()
+    roll = re.sub(r"^[A-Z]{3}(?=\d)", "", roll)
+    return roll
 
 
 def normalize_person_name(value: str) -> str:

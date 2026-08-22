@@ -2,13 +2,15 @@ from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.db import transaction
 
-from .models import User, UserRole, Faculty
+from .models import User, UserRole, Faculty, Student
 from .serializers import (
     GoogleLoginSerializer,
     UserSerializer,
     StudentOnboardingSerializer,
     FacultyOnboardingSerializer,
     FacultySerializer,
+    FacultyCreateSerializer,
+    StudentSerializer,
 )
 from .services import (
     GoogleService,
@@ -232,3 +234,39 @@ class LogoutAPIView(APIView):
         response.delete_cookie("refresh")
         
         return response 
+
+
+class FacultyCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = FacultyCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        faculty = serializer.save()
+        return success_response(
+            data=FacultySerializer(faculty).data,
+            message="Faculty created successfully.",
+        )
+
+
+class StudentListView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from django.db import models
+        roll_number = request.query_params.get("roll_number")
+        q = request.query_params.get("q")
+        queryset = Student.objects.all()
+
+        if roll_number:
+            from ingestion.pipeline.utils.text_cleaners import clean_roll_number
+            cleaned_roll = clean_roll_number(roll_number)
+            queryset = queryset.filter(roll_number__iexact=cleaned_roll)
+        elif q:
+            queryset = queryset.filter(
+                models.Q(full_name__icontains=q) | models.Q(roll_number__icontains=q)
+            )
+
+        students = queryset[:20]
+        serializer = StudentSerializer(students, many=True)
+        return success_response(data=serializer.data)

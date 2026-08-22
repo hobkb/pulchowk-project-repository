@@ -43,13 +43,23 @@ class StandardResultsSetPagination(PageNumberPagination):
     max_page_size = 100
 
 
+def is_admin_or_dept_admin(user):
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_staff or user.is_superuser or getattr(user, "role", None) == "admin":
+        return True
+    person = getattr(user, "person", None)
+    if person is not None:
+        from organization.models import DepartmentAdmin
+        return DepartmentAdmin.objects.filter(faculty=person, is_active=True).exists()
+    return False
+
+
 def get_job_for_user(job_id, user):
     try:
-        # Strictly enforce admin/staff access
-        if user.is_staff:
+        if is_admin_or_dept_admin(user) or IngestionJob.objects.filter(id=job_id, uploaded_by=user).exists():
             return IngestionJob.objects.get(id=job_id)
 
-        # Non-staff users are rejected
         raise NotFound("Job not found.")
     
     except IngestionJob.DoesNotExist:
@@ -57,25 +67,23 @@ def get_job_for_user(job_id, user):
 
 
 class JobListCreateAPIView(APIView):
-    permission_classes = [permissions.IsAuthenticated,
-                         # permissions.IsAdminUser,  
-                          ]
+    permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def post(self, request):
+        if not is_admin_or_dept_admin(request.user):
+            raise ValidationError({"detail": "Only admins or departmental admins can upload projects."})
         serializer = IngestionJobCreateSerializer(data=request.data)
     
         if not serializer.is_valid():
             raise ValidationError(serializer.errors)
     
         uploaded_file = serializer.validated_data["file"]
-        # classroom_id = serializer.validated_data.get("classroom_id")
     
         job = IngestionJob.objects.create(
             file=uploaded_file,
             original_filename=uploaded_file.name,
             uploaded_by=request.user,
-            # classroom_id=classroom_id,
             status=IngestionJob.Status.PENDING,
         )
     
@@ -99,7 +107,7 @@ class JobListCreateAPIView(APIView):
     def get(self, request):
         queryset = (
             IngestionJob.objects.all()
-            if request.user.is_staff
+            if is_admin_or_dept_admin(request.user)
             else IngestionJob.objects.filter(uploaded_by=request.user)
         )
     
@@ -180,12 +188,15 @@ class JobDetailAPIView(APIView):
     def patch(self, request, job_id):
         job = get_job_for_user(job_id, request.user)
     
-        if job.status != IngestionJob.Status.EXTRACTED:
+        if job.status not in (
+            IngestionJob.Status.EXTRACTED,
+            IngestionJob.Status.SECTIONS_PENDING,
+        ):
             raise ValidationError(
                 {
                     "detail": (
                         "Cannot edit payload unless job status is "
-                        f"EXTRACTED. Current status: {job.status}"
+                        f"EXTRACTED or SECTIONS_PENDING. Current status: {job.status}"
                     )
                 }
             )
@@ -226,6 +237,12 @@ class JobDetailAPIView(APIView):
             if field_name in serializer.validated_data:
                 payload[field_name] = serializer.validated_data[field_name]
     
+        # Persist raw extra flags directly (not part of strict serializer)
+        if "_sections_skipped" in request.data:
+            payload["_sections_skipped"] = bool(request.data["_sections_skipped"])
+        if "_verified_by_admin" in request.data:
+            payload["_verified_by_admin"] = bool(request.data["_verified_by_admin"])
+
         job.extracted_payload = payload
         job.save(
             update_fields=[
@@ -464,7 +481,7 @@ class JobPublishAPIView(APIView):
     def post(self, request, job_id):
         job = get_job_for_user(job_id, request.user)
     
-        if job.published_project is not None:
+        if job.published_project is not None and job.status != IngestionJob.Status.SECTIONS_PENDING:
             raise ValidationError(
                 {
                     "detail": (
@@ -472,14 +489,47 @@ class JobPublishAPIView(APIView):
                     )
                 }
             )
-        if job.status != IngestionJob.Status.EXTRACTED:
+        if job.status not in (
+            IngestionJob.Status.EXTRACTED,
+            IngestionJob.Status.SECTIONS_PENDING,
+        ):
             raise ValidationError(
                 {
                     "detail": (
                         "Job can only be published when status is "
-                        f"EXTRACTED. Current status: {job.status}"
+                        f"EXTRACTED or SECTIONS_PENDING. Current status: {job.status}"
                     )
                 }
+            )
+
+        # ── Case B: SECTIONS_PENDING → update sections on existing project ──
+        if job.status == IngestionJob.Status.SECTIONS_PENDING:
+            payload = job.extracted_payload or {}
+            project = job.published_project
+            if project is None:
+                raise ValidationError({"detail": "No published project found for this job."})
+
+            with transaction.atomic():
+                # Replace all existing sections
+                project.sections.all().delete()
+                self._create_sections(project, payload.get("project_sections", []))
+
+                job.status = IngestionJob.Status.VERIFIED
+                job.save(update_fields=["status", "updated_at"])
+
+                IngestionJobLog.objects.create(
+                    job=job,
+                    level="INFO",
+                    message=(
+                        f"Sections updated on Project ({project.id}) by "
+                        f"{request.user.email}. Status set to VERIFIED."
+                    ),
+                )
+
+            return success_response(
+                data={"project_id": str(project.id)},
+                message="Project sections updated and status set to Verified.",
+                status=status.HTTP_200_OK,
             )
     
         payload = job.extracted_payload or {}
@@ -664,8 +714,16 @@ class JobPublishAPIView(APIView):
                     file_size=job.file.size,
                 )
     
+            # ── Case A: set final status based on whether sections were skipped ──
+            sections_skipped = bool(payload.get("_sections_skipped"))
+            new_status = (
+                IngestionJob.Status.SECTIONS_PENDING
+                if sections_skipped
+                else IngestionJob.Status.VERIFIED
+            )
+
             job.published_project = project
-            job.status = IngestionJob.Status.VERIFIED
+            job.status = new_status
             job.save(
                 update_fields=[
                     "published_project",
@@ -673,7 +731,7 @@ class JobPublishAPIView(APIView):
                     "updated_at",
                 ]
             )
-    
+
             IngestionJobLog.objects.create(
                 job=job,
                 level="INFO",
@@ -681,7 +739,7 @@ class JobPublishAPIView(APIView):
                     f"Job published to repository.Project "
                     f"({project.id}) by user "
                     f"{request.user.email}. "
-                    "Status set to VERIFIED."
+                    f"Status set to {new_status}."
                 ),
             )
     

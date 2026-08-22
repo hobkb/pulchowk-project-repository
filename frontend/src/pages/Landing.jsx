@@ -18,7 +18,7 @@ export default function Landing() {
       <header className="flex items-center gap-3 px-6 md:px-8 py-5 border-b border-border-subtle bg-surface-raised/60 sticky top-0 z-50">
         <img src={tuLogo} alt="Tribhuvan University Logo" className="h-9 w-9 object-contain" />
         <div className="leading-tight">
-          <p className="font-mono text-xs uppercase tracking-wider text-accent-gold font-semibold">DOECE</p>
+          <p className="font-mono text-xs uppercase tracking-wider text-accent-gold font-semibold">Pulchowk Project Repository</p>
           <p className="text-xs text-text-secondary">Pulchowk Campus · IOE · Tribhuvan University</p>
         </div>
       </header>

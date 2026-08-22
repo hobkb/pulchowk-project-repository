@@ -18,7 +18,7 @@ import {
 
 export default function Sidebar({ isCollapsed, pendingApprovalsCount = 0 }) {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = user?.role === "admin" || user?.is_staff || user?.is_superuser || user?.is_department_admin;
 
   const generalNavItems = [
     { name: "Dashboard", path: "/dashboard", icon: faChartSimple },

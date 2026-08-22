@@ -23,7 +23,7 @@ function UserMenu({ user, onLogout, navigate }) {
   }, []);
 
   const fullName = user?.first_name ? `${user.first_name} ${user.last_name || ""}` : user?.email;
-  const roleLabel = user?.role === "admin" ? "Administrator" : "General User";
+  const roleLabel = user?.role === "admin" || user?.is_superuser ? "Administrator" : user?.is_department_admin ? "Department Admin" : "General User";
 
   return (
     <div className="relative" ref={menuRef}>
@@ -81,7 +81,7 @@ function UserMenu({ user, onLogout, navigate }) {
 export default function Navbar({ onToggleSidebar }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = user?.role === "admin" || user?.is_staff || user?.is_superuser || user?.is_department_admin;
   const [searchQuery, setSearchQuery] = useState("");
 
   const handleLogout = async () => {
