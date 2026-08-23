@@ -86,7 +86,14 @@ export default function DashboardHome() {
     },
   ];
 
-  const recentProjects = projects.slice(0, 6);
+  const recentProjects = [...projects]
+    .sort((a, b) => {
+      if (a.created_at && b.created_at) {
+        return new Date(b.created_at) - new Date(a.created_at);
+      }
+      return (b.id || 0) - (a.id || 0);
+    })
+    .slice(0, 6);
 
   // Compute unique supervisors count
   const supervisorCount = new Set(

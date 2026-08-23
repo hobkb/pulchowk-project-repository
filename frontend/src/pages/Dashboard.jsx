@@ -207,7 +207,11 @@ export default function Dashboard() {
         const authorMatch = (p.authors || []).some(
           (a) => (a.name || "").toLowerCase().includes(q) || (a.rollNumber || "").toLowerCase().includes(q)
         );
-        const techMatch = (p.technologies || []).some((t) => (t || "").toLowerCase().includes(q));
+        const techMatch =
+          (p.technologies || []).some((t) => (t || "").toLowerCase().includes(q)) ||
+          (p.keywords || []).some((k) =>
+            (typeof k === "string" ? k : k?.name || "").toLowerCase().includes(q)
+          );
         const batchMatch = (p.batch || "").toLowerCase().includes(q) || (p.year || "").toLowerCase().includes(q);
 
         if (!titleMatch && !abstractMatch && !supervisorMatch && !authorMatch && !techMatch && !batchMatch) {

@@ -92,9 +92,12 @@ export default function Navbar({ onToggleSidebar }) {
   const searchQuery = searchParams.get("q") || "";
 
   const handleSearchChange = (val) => {
-    const isSearchablePage = location.pathname === "/dashboard" || location.pathname === "/projects";
-    if (!isSearchablePage) {
-      navigate(`/dashboard?q=${encodeURIComponent(val)}`);
+    if (location.pathname !== "/projects") {
+      if (val) {
+        navigate(`/projects?q=${encodeURIComponent(val)}`);
+      } else {
+        navigate("/projects");
+      }
     } else {
       const newParams = new URLSearchParams(searchParams);
       if (val) {
