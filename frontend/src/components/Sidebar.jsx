@@ -6,8 +6,7 @@ import {
   faFolderTree, 
   faRobot, 
   faBookmark, 
-  faUserCircle, 
-  faGear, 
+  faUserCircle,
   faUpload, 
   faListCheck, 
   faDatabase, 
@@ -25,8 +24,7 @@ export default function Sidebar({ isCollapsed, pendingApprovalsCount = 0 }) {
     { name: "Browse Projects", path: "/projects", icon: faFolderTree },
     { name: "AI Assistant", path: "/assistant", icon: faRobot, isAi: true },
     { name: "Bookmarks", path: "/bookmarks", icon: faBookmark, comingSoon: true },
-    { name: "Profile", path: "/profile", icon: faUserCircle },
-    { name: "Settings", path: "/settings", icon: faGear }
+    { name: "Profile", path: "/profile", icon: faUserCircle }
   ];
 
   const adminNavItems = [
@@ -39,9 +37,8 @@ export default function Sidebar({ isCollapsed, pendingApprovalsCount = 0 }) {
       icon: faListCheck,
       badge: pendingApprovalsCount > 0 ? pendingApprovalsCount : null
     },
-    { name: "Repository Management", path: "/admin/repository", icon: faDatabase },
-    { name: "Profile", path: "/profile", icon: faUserCircle },
-    { name: "Settings", path: "/settings", icon: faGear }
+    { name: "Repository Management", path: "/admin/repository", icon: faDatabase, comingSoon: true },
+    { name: "Profile", path: "/profile", icon: faUserCircle }
   ];
 
   const navItems = isAdmin ? adminNavItems : generalNavItems;
@@ -58,23 +55,10 @@ export default function Sidebar({ isCollapsed, pendingApprovalsCount = 0 }) {
     );
   };
 
-  const renderStatusIcon = (status, size = "h-3 w-3") => {
-    switch (status) {
-      case "approved":
-        return <FontAwesomeIcon icon={faCheckCircle} className={`${size} text-success-emerald`} />;
-      case "pending":
-        return <FontAwesomeIcon icon={faClock} className={`${size} text-warning-amber`} />;
-      case "rejected":
-        return <FontAwesomeIcon icon={faCircleXmark} className={`${size} text-error-red`} />;
-      default:
-        return <FontAwesomeIcon icon={faClock} className={`${size} text-warning-amber`} />;
-    }
-  };
-
   return (
-    <aside className={`bg-surface-raised border-r border-border-subtle flex flex-col flex-shrink-0 transition-all duration-300 ${
+    <aside className={`bg-surface-raised border-r border-border-subtle flex flex-col flex-shrink-0 transition-all duration-300 sticky top-16 h-[calc(100vh-64px)] z-30 ${
       isCollapsed ? "w-[72px]" : "w-[260px]"
-    } min-h-[calc(100vh-64px)]`}>
+    }`}>
       <nav className="flex-1 py-4 flex flex-col gap-1 overflow-y-auto px-3">
         {navItems.map((item) => {
           if (item.comingSoon) {
@@ -122,11 +106,11 @@ export default function Sidebar({ isCollapsed, pendingApprovalsCount = 0 }) {
         })}
       </nav>
 
-      {/* Sidebar Footer - always visible when expanded */}
+      {/* Sidebar Footer */}
       {!isCollapsed && (
         <div className="p-4 border-t border-border-subtle">
           <span className="text-micro font-mono text-text-tertiary">
-            v1.0.0 &middot; TU DOECE
+            v1.0.0 &middot; TU IOE Repository
           </span>
         </div>
       )}

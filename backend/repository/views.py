@@ -26,8 +26,7 @@ def get_published_project_queryset():
 class ProjectListView(APIView):
     """
     Public read-only list of verified (Published) projects.
-    Only ingested projects that have been published to the repository
-    are surfaced here. Unpublished/processing jobs live in the ingestion app.
+    Supports text search ('q'), department filtering, academic level / major filtering, and project_type (Minor/Major) filtering.
     """
 
     permission_classes = [permissions.AllowAny]
@@ -40,15 +39,28 @@ class ProjectListView(APIView):
             queryset = queryset.filter(
                 Q(title__icontains=search)
                 | Q(abstract__icontains=search)
+                | Q(description__icontains=search)
                 | Q(project_people__person__full_name__icontains=search)
                 | Q(project_keywords__keyword__name__icontains=search)
+                | Q(project_type__icontains=search)
+                | Q(academic_level__icontains=search)
+                | Q(batch__icontains=search)
             ).distinct()
 
         department = (request.query_params.get("department") or "").strip()
-        if department:
-            queryset = queryset.filter(
-                department__name__icontains=department
-            ).distinct()
+        if department and department.lower() != "all":
+            if department.isdigit():
+                queryset = queryset.filter(department_id=int(department))
+            else:
+                queryset = queryset.filter(department__name__icontains=department).distinct()
+
+        academic_level = (request.query_params.get("academic_level") or request.query_params.get("major") or "").strip()
+        if academic_level and academic_level.lower() != "all":
+            queryset = queryset.filter(academic_level__iexact=academic_level)
+
+        project_type = (request.query_params.get("project_type") or "").strip()
+        if project_type and project_type.lower() != "all":
+            queryset = queryset.filter(project_type__iexact=project_type)
 
         projects = list(queryset)
         serializer = ProjectListSerializer(

@@ -125,6 +125,9 @@ class ProjectListSerializer(serializers.ModelSerializer):
     coverImage = serializers.SerializerMethodField()
     pdfUrl = serializers.SerializerMethodField()
 
+    project_type = serializers.CharField(read_only=True)
+    academic_level = serializers.CharField(read_only=True)
+
     class Meta:
         model = Project
         fields = [
@@ -144,6 +147,8 @@ class ProjectListSerializer(serializers.ModelSerializer):
             "keywords",
             "coverImage",
             "pdfUrl",
+            "project_type",
+            "academic_level",
         ]
 
     def get_people(self, obj, roles=None):
