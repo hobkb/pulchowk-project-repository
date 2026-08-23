@@ -36,6 +36,7 @@ export {
   // Navigation
   Breadcrumb,
   Crumb,
+  Pagination,
   // Tables
   Table,
   TableHead,

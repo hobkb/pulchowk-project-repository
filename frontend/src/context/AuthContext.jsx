@@ -53,6 +53,12 @@ export function AuthProvider({ children }) {
     return u;
   }, []);
 
+  /** Replace the cached user after the profile is edited, so the account
+   *  page and the header reflect the change without a reload. */
+  const applyUser = useCallback((u) => {
+    if (u) setUser(u);
+  }, []);
+
   const logout = useCallback(async () => {
     await authApi.logout().finally(() => {
       setUser(null);
@@ -61,7 +67,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, status, loginWithGoogle, completeProfile, logout }}>
+    <AuthContext.Provider value={{ user, status, loginWithGoogle, completeProfile, applyUser, logout }}>
       {children}
     </AuthContext.Provider>
   );

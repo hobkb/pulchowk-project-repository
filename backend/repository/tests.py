@@ -556,7 +556,12 @@ class ClusterAndSupervisorFilterTests(TestCase):
         campus = Campus.objects.get_or_create(name="Pulchowk Campus")[0]
         self.dept = Department.objects.create(name="Electronics Engineering", campus=campus)
 
-        self.sup_a = Faculty.objects.create(full_name="Bikal Adhikari", department=self.dept)
+        self.sup_a = Faculty.objects.create(
+            full_name="Bikal Adhikari",
+            department=self.dept,
+            title="Dr.",
+            designation="Assistant Professor",
+        )
         self.sup_b = Faculty.objects.create(full_name="Rita Shakya", department=self.dept)
 
         self.aiml = self._project("Vision system", "AIML", "078", "UG", self.sup_a)
@@ -625,9 +630,23 @@ class ClusterAndSupervisorFilterTests(TestCase):
         self.assertEqual(
             data["clusters"], [{"name": "AIML", "count": 2}, {"name": "NTS", "count": 1}]
         )
+        # `name` stays the bare name because that is what the supervisor
+        # filter matches on; rank travels alongside it for display.
         self.assertCountEqual(
             data["supervisors"],
-            [{"name": "Bikal Adhikari", "count": 2}, {"name": "Rita Shakya", "count": 1}],
+            [
+                {
+                    "name": "Bikal Adhikari",
+                    "count": 2,
+                    "title": "Dr.",
+                    "designation": "Assistant Professor",
+                },
+                {"name": "Rita Shakya", "count": 1, "title": "", "designation": ""},
+            ],
+        )
+        # Filtering still works on the plain name, not the decorated one.
+        self.assertCountEqual(
+            self._titles(supervisor="Bikal Adhikari"), ["Vision system", "Speech model"]
         )
         self.assertEqual(
             data["cluster_choices"],

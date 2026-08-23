@@ -487,14 +487,38 @@ class JobPublishAPIView(APIView):
         title="",
     ):
 
-        faculty, _ = Faculty.objects.update_or_create(
-            full_name=full_name,
-            department=department,
-            defaults={
-                "designation": designation,
-                "title": title,
-            },
-        )
+        # Matched on the name alone, then the department is filled in if it
+        # was missing. Keying update_or_create on (full_name, department)
+        # created a SECOND row for the same person whenever the stored
+        # record had no department yet -- which is how a supervisor ended up
+        # in the catalogue twice, one copy carrying the corrected title and
+        # the other not.
+        faculty = Faculty.objects.filter(full_name__iexact=full_name).first()
+
+        if faculty is None:
+            return Faculty.objects.create(
+                full_name=full_name,
+                department=department,
+                designation=designation,
+                title=title,
+            )
+
+        # Only ever add information. Publishing a report that happens not to
+        # name a supervisor's honorific must not wipe one an administrator
+        # entered by hand, so an empty incoming value leaves the stored one
+        # alone.
+        updates = {}
+        if designation and designation != faculty.designation:
+            updates["designation"] = designation
+        if title and title != faculty.title:
+            updates["title"] = title
+        if department is not None and faculty.department_id is None:
+            updates["department"] = department
+
+        if updates:
+            for field, value in updates.items():
+                setattr(faculty, field, value)
+            faculty.save(update_fields=list(updates))
 
         return faculty
 
@@ -698,7 +722,14 @@ class JobPublishAPIView(APIView):
                 )
 
                 if role_lower in self.FACULTY_ROLES:
-                    full_name, title = self._parse_faculty_full_name(raw_full_name)
+                    full_name, parsed_title = self._parse_faculty_full_name(raw_full_name)
+                    # A title typed into the review form is what the reviewer
+                    # decided; it wins over whatever could be parsed out of
+                    # the name. Only fall back to the parsed prefix when the
+                    # form left the field empty -- previously the typed value
+                    # was discarded entirely, so entering "Dr." never stuck.
+                    submitted_title = (person_data.get("title") or "").strip()
+                    title = submitted_title or parsed_title
                 else:
                     full_name = self._normalize_full_name(raw_full_name)
                     title = ""

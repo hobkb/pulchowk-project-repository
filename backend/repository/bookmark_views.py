@@ -2,7 +2,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import permissions, status
 from rest_framework.views import APIView
 
-from core.responses import success_response
+from core.responses import paginated_response, success_response
 from repository.models import Bookmark, Project
 from repository.serializers import ProjectListSerializer
 
@@ -20,8 +20,12 @@ class BookmarkListCreateAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
+        # A project that has since been unpublished drops out of the list
+        # rather than 404ing when opened. This has to be a queryset filter,
+        # not a list comprehension after the fact, or the page counts would
+        # describe rows that were then discarded.
         bookmarks = (
-            Bookmark.objects.filter(user=request.user)
+            Bookmark.objects.filter(user=request.user, project__status="Published")
             .select_related("project", "project__department")
             .prefetch_related(
                 "project__project_people__person",
@@ -30,13 +34,13 @@ class BookmarkListCreateAPIView(APIView):
             )
             .order_by("-created_at")
         )
-        # A project that has since been unpublished should drop out of the
-        # list rather than 404 when opened.
-        projects = [b.project for b in bookmarks if b.project.status == "Published"]
-        return success_response(
-            data=ProjectListSerializer(
-                projects, many=True, context={"request": request}
+        return paginated_response(
+            request,
+            bookmarks,
+            lambda rows: ProjectListSerializer(
+                [b.project for b in rows], many=True, context={"request": request}
             ).data,
+            page_size=5,
             message="Saved projects retrieved successfully.",
         )
 

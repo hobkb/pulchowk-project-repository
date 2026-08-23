@@ -119,7 +119,6 @@ export default function Notifications() {
       <Container width="normal" className="px-5 sm:px-8 py-8">
         <PageHeading
           title="Notifications"
-          lead="Updates about the reports you have deposited and, for reviewers, deposits waiting to be verified."
           actions={
             unreadCount > 0 ? (
               <Button variant="secondary" size="sm" onClick={handleMarkAllRead}>

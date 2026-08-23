@@ -119,7 +119,6 @@ export default function PendingApprovals() {
       <Container width="wide" className="px-5 sm:px-8 py-8">
         <PageHeading
           title="Verification queue"
-          lead="Deposited reports and their progress through extraction, verification and publication."
           actions={
             <Button as={Link} to="/admin/upload" variant="primary" size="sm">
               Deposit a report

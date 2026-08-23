@@ -450,7 +450,12 @@ class SyntheticReportPipelineTests(TestCase):
 
         self.assertEqual(len(supervisors), 1)
         self.assertEqual(supervisors[0]["full_name"], "Manoj Shrestha")
-        self.assertEqual(supervisors[0]["designation"], "Prof. Dr.")
+        # A stacked prefix carries two different facts and they go to two
+        # different fields. Keeping both in `designation` meant a rank read
+        # off a following line overwrote the honorific, and the "Dr."
+        # vanished from the published record.
+        self.assertEqual(supervisors[0]["designation"], "Prof.")
+        self.assertEqual(supervisors[0]["title"], "Dr.")
 
     # ---------------------------------------------------------------
     # Author / student-member extraction

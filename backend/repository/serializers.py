@@ -105,32 +105,61 @@ class ProjectSectionSerializer(serializers.ModelSerializer):
         ]
 
 
+_NUMBERING = re.compile(r"^\s*(\d+(?:\.\d+)*)\s*[.)]?\s+\S")
+
+
+def numbering_depth(heading):
+    """Depth implied by a heading's own numbering, or None if unnumbered.
+
+    "1. Introduction" is 1, "1.2 Problem Statement" is 2, "1.1.1" is 3.
+    """
+    match = _NUMBERING.match(heading or "")
+    return len(match.group(1).split(".")) if match else None
+
+
 def build_section_tree(rows):
     """Rebuilds the nested section tree from the flat ProjectSection rows.
 
     ProjectSection has no parent FK, but it does not need one: rows are
     written in document order (a single pre-order `display_order`
     sequence, assigned by the publish view) and each carries its
-    heading_level. That pair is enough to reconstruct the exact tree with
-    the same open-section stack the ingestion pipeline used to build it in
-    the first place -- a heading either opens a sibling at its own level,
-    a child of whatever is currently deepest-open, or closes deeper levels
-    back up to its own.
+    heading_level. That pair reconstructs the tree with the same
+    open-section stack the ingestion pipeline used to build it.
+
+    Where the document numbers its own headings, that numbering wins over
+    the stored level. The stored level is derived from font size, which
+    regularly disagrees with the document: a "1.2" set in the same size as
+    "1. Introduction" was recorded as another top-level section, so every
+    subsection after a "1.1.1" broke out of its parent and the rest of the
+    chapter reattached at the wrong depth. The number printed in the
+    document is what the author meant; the font is only a guess at it.
+
+    Numbering is only trusted when the document actually uses it, so one
+    stray "2024 in review" heading cannot restructure an unnumbered report.
 
     A level that would leave an impossible gap (a level-3 heading with no
     level-2 open) is clamped to the deepest legal level rather than
-    dropped, mirroring the ingestion-side rule, so a section can never
-    vanish from the published document just because its recorded level is
+    dropped, so a section can never vanish because its recorded level is
     inconsistent.
     """
+    rows = list(rows)
+
+    depths = [numbering_depth(row.get("heading")) for row in rows]
+    numbered = [d for d in depths if d is not None]
+    use_numbering = rows and len(numbered) >= max(2, len(rows) * 0.4)
+
     root = []
     stack = []  # list[(level, node)], shallowest-open first
 
-    for row in rows:
+    for row, numbered_depth in zip(rows, depths):
         node = dict(row)
-        level = node.get("heading_level") or 1
+
+        level = numbered_depth if use_numbering else None
+        if level is None:
+            level = node.get("heading_level") or 1
         if not isinstance(level, int) or level < 1:
             level = 1
+
         max_allowed = (stack[-1][0] + 1) if stack else 1
         level = min(level, max_allowed)
 
@@ -181,6 +210,7 @@ class ProjectListSerializer(serializers.ModelSerializer):
             "supervisors",
             "year",
             "batch",
+            "academic_level",
             "department",
             "cluster",
             "status",

@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faLock, faSpinner } from "@fortawesome/free-solid-svg-icons";
 import { useAuth } from "../context/AuthContext";
-import { roleRequestsApi } from "../api/client";
+import { authApi, profileApi, roleRequestsApi } from "../api/client";
+import { ACADEMIC_LEVELS, academicLevelLabel } from "../lib/labels";
 import {
   Alert,
   Breadcrumb,
@@ -10,20 +13,23 @@ import {
   CardHeader,
   Container,
   Crumb,
+  ErrorNotice,
+  FieldLabel,
+  Input,
   Meta,
   PageHeading,
+  Select,
   Status,
 } from "../components/ui";
 
 /**
  * Account.
  *
- * Read-only, and honest about why. Everything shown comes from
- * GET /accounts/me/, whose serializer declares every field read-only —
- * the backend exposes no endpoint for a user to change their own name,
- * email, department or role after onboarding. So this page shows what is
- * on record and says where a change has to come from, rather than
- * offering disabled inputs beside a Save button that could never work.
+ * The details a person owns are editable here. Identity is not: the email
+ * address comes from Google, the role is granted by an administrator, and
+ * a roll number carried by the campus address was issued by the campus.
+ * Those are shown as facts, and the server rejects changes to them rather
+ * than relying on the form to withhold them.
  */
 
 function accessLevel(user) {
@@ -54,12 +60,70 @@ function accessLevel(user) {
 const REQUESTED_ROLE_LABEL = { admin: "Administrator", faculty: "Faculty" };
 
 export default function AccountSettings() {
-  const { user } = useAuth();
+  const { user, applyUser } = useAuth();
   const profile = user?.profile || null;
   // Choosing faculty or administrator during onboarding files a request
   // rather than granting anything, so the applicant is told where that
   // request stands instead of being left wondering why nothing changed.
   const [roleRequest, setRoleRequest] = useState(null);
+  const [departments, setDepartments] = useState([]);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const [saved, setSaved] = useState(false);
+  const [draft, setDraft] = useState(null);
+
+  useEffect(() => {
+    authApi
+      .getDepartments()
+      .then((body) => setDepartments(body?.data || body || []))
+      .catch(() => setDepartments([]));
+  }, []);
+
+  function startEditing() {
+    setDraft({
+      full_name: profile?.full_name || "",
+      department_id: profile?.department_id || "",
+      academic_level: profile?.academic_level || "UG",
+      roll_number: profile?.roll_number || "",
+      title: profile?.title || "",
+      designation: profile?.designation || "",
+    });
+    setSaveError(null);
+    setSaved(false);
+    setEditing(true);
+  }
+
+  async function save(event) {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const payload = {
+        full_name: draft.full_name,
+        department_id: draft.department_id || null,
+      };
+      if (profile?.kind === "student") {
+        payload.academic_level = draft.academic_level;
+        // Only sent when the address does not already prove one; the
+        // server ignores it otherwise, but there is no reason to send it.
+        if (!profile.roll_number_locked) payload.roll_number = draft.roll_number;
+      }
+      if (profile?.kind === "faculty") {
+        payload.title = draft.title;
+        payload.designation = draft.designation;
+      }
+      const body = await profileApi.update(payload);
+      applyUser(body.data);
+      setEditing(false);
+      setSaved(true);
+    } catch (err) {
+      setSaveError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -88,10 +152,7 @@ export default function AccountSettings() {
       </Breadcrumb>
 
       <Container width="normal" className="px-5 sm:px-8 py-8">
-        <PageHeading
-          title="Account"
-          lead="What the repository holds about your account, and where each part of it comes from."
-        />
+        <PageHeading title="Account" />
 
         <div className="mt-7 grid grid-cols-1 gap-6 md:grid-cols-2 items-start">
           <Card>
@@ -100,16 +161,138 @@ export default function AccountSettings() {
               <Meta label="Email address">{user?.email || "—"}</Meta>
               <Meta label="Name">{accountName || "Not provided"}</Meta>
             </dl>
-            <p className="border-t border-line bg-band px-4 py-3 text-xs text-ink-2">
-              Your email address and name come from the Google account you sign in with. Change
-              them there and they will update here at your next sign-in.
-            </p>
           </Card>
 
           <Card>
-            <CardHeader title="Repository profile" />
-            {profile ? (
+            <CardHeader
+              title="Repository profile"
+              action={
+                profile && !editing ? (
+                  <Button variant="secondary" size="sm" onClick={startEditing}>
+                    Edit
+                  </Button>
+                ) : null
+              }
+            />
+            {!profile ? (
+              <p className="px-4 py-5 text-sm text-ink-2">
+                No repository profile is linked to this account yet.
+              </p>
+            ) : editing ? (
+              <form onSubmit={save} className="flex flex-col gap-4 px-4 py-4">
+                {saveError && <ErrorNotice title="Could not save" detail={saveError} />}
+
+                <div>
+                  <FieldLabel htmlFor="profile-name">Full name</FieldLabel>
+                  <Input
+                    id="profile-name"
+                    value={draft.full_name}
+                    onChange={(e) => setDraft({ ...draft, full_name: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <FieldLabel htmlFor="profile-department">Department</FieldLabel>
+                  <Select
+                    id="profile-department"
+                    value={draft.department_id || ""}
+                    onChange={(e) => setDraft({ ...draft, department_id: e.target.value })}
+                  >
+                    <option value="">Not recorded</option>
+                    {departments.map((dept) => (
+                      <option key={dept.id} value={dept.id}>
+                        {dept.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+
+                {profile.kind === "student" && (
+                  <>
+                    <div>
+                      <FieldLabel htmlFor="profile-level">Academic level</FieldLabel>
+                      <Select
+                        id="profile-level"
+                        value={draft.academic_level}
+                        onChange={(e) => setDraft({ ...draft, academic_level: e.target.value })}
+                      >
+                        {ACADEMIC_LEVELS.map((level) => (
+                          <option key={level.value} value={level.value}>
+                            {level.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+
+                    <div>
+                      <FieldLabel htmlFor="profile-roll">Roll number</FieldLabel>
+                      {profile.roll_number_locked ? (
+                        <p className="flex items-center gap-2 rounded-sm border border-line bg-band px-3 py-2 text-sm text-ink-2">
+                          <FontAwesomeIcon icon={faLock} className="h-3 w-3 shrink-0" aria-hidden="true" />
+                          <span className="tnum">{profile.roll_number}</span>
+                          <span className="text-ink-3">issued with your campus address</span>
+                        </p>
+                      ) : (
+                        <Input
+                          id="profile-roll"
+                          className="tnum"
+                          value={draft.roll_number}
+                          onChange={(e) => setDraft({ ...draft, roll_number: e.target.value.toUpperCase() })}
+                        />
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {profile.kind === "faculty" && (
+                  <>
+                    <div>
+                      <FieldLabel htmlFor="profile-title">Title</FieldLabel>
+                      <Input
+                        id="profile-title"
+                        value={draft.title}
+                        onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                        placeholder="e.g. Dr."
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel htmlFor="profile-designation">Designation</FieldLabel>
+                      <Input
+                        id="profile-designation"
+                        value={draft.designation}
+                        onChange={(e) => setDraft({ ...draft, designation: e.target.value })}
+                        placeholder="e.g. Assistant Professor"
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div className="flex gap-2">
+                  <Button type="submit" variant="primary" size="sm" disabled={saving}>
+                    {saving && (
+                      <FontAwesomeIcon icon={faSpinner} className="h-3.5 w-3.5 spin" aria-hidden="true" />
+                    )}
+                    Save changes
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setEditing(false)}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            ) : (
               <>
+                {saved && (
+                  <p className="mx-4 mt-4 rounded-sm border border-ok/40 bg-ok/10 px-3 py-2 text-sm text-ink">
+                    Profile updated.
+                  </p>
+                )}
                 <dl className="divide-y divide-line px-4">
                   <Meta label="Full name">{profile.full_name || "—"}</Meta>
                   <Meta label="Department">{profile.department || "Not recorded"}</Meta>
@@ -119,7 +302,7 @@ export default function AccountSettings() {
                       <Meta label="Roll number">
                         <span className="tnum">{profile.roll_number || "Not recorded"}</span>
                       </Meta>
-                      <Meta label="Academic level">{profile.academic_level || "Not recorded"}</Meta>
+                      <Meta label="Academic level">{academicLevelLabel(profile.academic_level)}</Meta>
                     </>
                   )}
 
@@ -133,17 +316,7 @@ export default function AccountSettings() {
                     </>
                   )}
                 </dl>
-                <p className="border-t border-line bg-band px-4 py-3 text-xs text-ink-2">
-                  Recorded when you completed onboarding, and used when your name appears on a
-                  project record. The repository has no self-service editing for these details —
-                  ask a department administrator to make a correction.
-                </p>
               </>
-            ) : (
-              <p className="px-4 py-5 text-sm text-ink-2">
-                No repository profile is linked to this account yet. One is created when you
-                complete onboarding.
-              </p>
             )}
           </Card>
 
@@ -152,9 +325,6 @@ export default function AccountSettings() {
             <div className="px-4 py-4">
               <Status tone={access.tone}>{access.title}</Status>
               <p className="mt-2.5 text-sm text-ink-2">{access.detail}</p>
-              <p className="mt-2 text-xs text-ink-3">
-                Access level is assigned by the department, not chosen here.
-              </p>
 
               {roleRequest && roleRequest.status === "PENDING" && (
                 <div className="mt-4 border-t border-line pt-3">
@@ -187,21 +357,13 @@ export default function AccountSettings() {
           <Card>
             <CardHeader title="Notifications" />
             <div className="px-4 py-4">
-              <p className="text-sm text-ink-2">
-                You receive a notification when a report you deposited finishes processing, when
-                a deposit is waiting for verification, when processing fails, and when a project
-                is published.
-              </p>
-              <Button as={Link} to="/notifications" variant="secondary" size="sm" className="mt-3">
+              <Button as={Link} to="/notifications" variant="secondary" size="sm">
                 View notifications
               </Button>
             </div>
           </Card>
         </div>
 
-        <Alert tone="neutral" className="mt-6">
-          Signing out is available from the account menu in the header.
-        </Alert>
       </Container>
     </>
   );

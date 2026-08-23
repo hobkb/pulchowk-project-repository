@@ -153,6 +153,39 @@ def split_person_title(full_name: str):
     return name, title
 
 
+# An honorific says who someone is; a rank says what post they hold. Both
+# turn up in the same prefix ("Prof. Dr. Manoj Shrestha"), but they belong
+# in different fields: the rank is the designation, the honorific is the
+# title. Keeping them in one field meant a rank found on the following line
+# overwrote the honorific, and the "Dr." disappeared from the record.
+#
+# Honorifics are a closed, short list, so they are what gets recognised;
+# whatever is left over is the rank. Doing it the other way round would
+# have to enumerate every way a rank is abbreviated, and a compound like
+# "Asst. Prof." would split across the two fields.
+_HONORIFIC_TOKENS = re.compile(
+    r"^(?:drs?|mr|mrs|ms|miss|rev|hon|er|engr)\.?$",
+    re.IGNORECASE,
+)
+
+
+def split_title_and_designation(prefix: str):
+    """Split a stacked title prefix into (honorific, rank).
+
+    "Prof. Dr."           -> ("Dr.", "Prof.")
+    "Asst. Prof."         -> ("",    "Asst. Prof.")
+    "Dr."                 -> ("Dr.", "")
+    "Assistant Professor" -> ("",    "Assistant Professor")
+    """
+    honorifics, rank_tokens = [], []
+    for token in (prefix or "").split():
+        if _HONORIFIC_TOKENS.match(token):
+            honorifics.append(token)
+        else:
+            rank_tokens.append(token)
+    return " ".join(honorifics), " ".join(rank_tokens)
+
+
 def normalize_person_name(value: str) -> str:
     cleaned = (value or "").strip()
     if not cleaned:

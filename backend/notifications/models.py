@@ -31,6 +31,16 @@ class Notification(models.Model):
         db_index=True,
     )
     notification_type = models.CharField(max_length=30, choices=NotificationType.choices)
+    # Who caused this notice, when someone did. Needed so a notice can be
+    # withdrawn along with the action that raised it -- matching on the
+    # message text would break the moment the wording changed.
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="notifications_triggered",
+    )
     message = models.CharField(max_length=255)
     job = models.ForeignKey(
         "ingestion.IngestionJob",

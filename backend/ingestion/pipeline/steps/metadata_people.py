@@ -7,6 +7,7 @@ from ingestion.pipeline.utils.text_cleaners import (
     extract_name_from_line,
     looks_like_noise,
     split_person_title,
+    split_title_and_designation,
     NAME_WITH_TITLE,
     ROLL_PATTERN,
     SUPERVISOR_PATTERN,
@@ -255,7 +256,8 @@ class MetadataPeopleStep(BasePipelineStep):
                                 cleaned_candidate = f"{cleaned_candidate} {tail}"
 
                         if cls._looks_like_faculty_name(cleaned_candidate):
-                            name, designation = split_person_title(cleaned_candidate)
+                            name, _prefix = split_person_title(cleaned_candidate)
+                            person_title, designation = split_title_and_designation(_prefix)
                             if name.lower() not in seen_names:
                                 if idx + lookahead + 1 < len(lines):
                                     follow_text = normalize_line(lines[idx + lookahead + 1].get("text", ""))
@@ -265,6 +267,7 @@ class MetadataPeopleStep(BasePipelineStep):
                                 seen_names.add(name.lower())
                                 people.append({
                                     "full_name": name,
+                                    "title": person_title,
                                     "designation": designation or None,
                                     "academic_level": "Faculty",
                                     "role": role,
@@ -294,7 +297,8 @@ class MetadataPeopleStep(BasePipelineStep):
                         continue
 
                     if cls._looks_like_faculty_name(cleaned_candidate):
-                        name, designation = split_person_title(cleaned_candidate)
+                        name, _prefix = split_person_title(cleaned_candidate)
+                        person_title, designation = split_title_and_designation(_prefix)
                         if name.lower() not in seen_names:
                             if idx + 1 < len(lines):
                                 follow_text = normalize_line(lines[idx + 1].get("text", ""))
@@ -304,6 +308,7 @@ class MetadataPeopleStep(BasePipelineStep):
                             seen_names.add(name.lower())
                             people.append({
                                 "full_name": name,
+                                "title": person_title,
                                 "designation": designation or None,
                                 "academic_level": "Faculty",
                                 "role": role,
@@ -376,7 +381,8 @@ class MetadataPeopleStep(BasePipelineStep):
                 continue
 
             raw_candidate = re.sub(r"\s+", " ", best_match.group(0)).strip()
-            name, designation = split_person_title(raw_candidate)
+            name, _prefix = split_person_title(raw_candidate)
+            person_title, designation = split_title_and_designation(_prefix)
             # NAME_WITH_TITLE greedily captures up to 4 trailing capitalized
             # words after a title, so it can overrun past the real name into
             # adjacent capitalized text -- a designation word right after it
@@ -392,6 +398,7 @@ class MetadataPeopleStep(BasePipelineStep):
             seen_names.add(name.lower())
             found.append({
                 "full_name": name,
+                "title": person_title,
                 "designation": designation or None,
                 "academic_level": "Faculty",
                 "role": role,
@@ -454,7 +461,8 @@ class MetadataPeopleStep(BasePipelineStep):
                 # the page's own heading is.
                 if text.isupper():
                     continue
-                name, designation = split_person_title(text)
+                name, _prefix = split_person_title(text)
+                person_title, designation = split_title_and_designation(_prefix)
                 if not name:
                     continue
                 # This path has no label and no cue phrase to anchor on, so
@@ -481,6 +489,7 @@ class MetadataPeopleStep(BasePipelineStep):
                     continue
                 return [{
                     "full_name": name,
+                    "title": person_title,
                     "designation": designation,
                     "academic_level": "Faculty",
                     "role": "Supervisor",
@@ -497,12 +506,14 @@ class MetadataPeopleStep(BasePipelineStep):
         match = NAME_WITH_TITLE.search(text)
         if match:
             raw_candidate = re.sub(r"\s+", " ", match.group(0)).strip()
-            name, designation = split_person_title(raw_candidate)
+            name, _prefix = split_person_title(raw_candidate)
+            person_title, designation = split_title_and_designation(_prefix)
             name_words = cls._truncate_at_institutional_word(name.split())
             name = " ".join(name_words)
             if name and len(name_words) >= 2:
                 return [{
                     "full_name": name,
+                    "title": person_title,
                     "designation": designation or None,
                     "academic_level": "Faculty",
                     "role": "Supervisor",

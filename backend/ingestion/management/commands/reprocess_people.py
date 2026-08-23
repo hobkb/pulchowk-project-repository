@@ -143,8 +143,14 @@ class Command(BaseCommand):
                 people = extract_people(job)
             except Exception as exc:  # noqa: BLE001 -- one bad PDF must not kill the batch
                 skipped += 1
+                # Only the exception TYPE. Its message routinely embeds the
+                # source path, and a report's filename normally repeats its
+                # title -- so echoing `exc` here leaked document content
+                # into the terminal for every unreadable file.
                 self.stderr.write(
-                    self.style.ERROR(f"  FAIL project #{project.id}: {exc}")
+                    self.style.ERROR(
+                        f"  FAIL project #{project.id}: {type(exc).__name__}"
+                    )
                 )
                 continue
 
@@ -210,9 +216,19 @@ class Command(BaseCommand):
                 full_name = JobPublishAPIView._normalize_full_name(raw_name)
                 title = ""
             else:
-                full_name, title = JobPublishAPIView._parse_faculty_full_name(raw_name)
+                full_name, parsed_title = JobPublishAPIView._parse_faculty_full_name(raw_name)
+                title = (person_data.get("title") or "").strip() or parsed_title
 
-            if not full_name or full_name.strip().lower() in existing_names:
+            if not full_name:
+                continue
+
+            if full_name.strip().lower() in existing_names:
+                if role != "Author" and not dry_run:
+                    self._fill_blank_faculty_fields(
+                        full_name=full_name,
+                        title=title,
+                        designation=(person_data.get("designation") or "").strip(),
+                    )
                 continue
 
             existing_names.add(full_name.strip().lower())
@@ -249,6 +265,28 @@ class Command(BaseCommand):
                 )
 
         return added
+
+    @staticmethod
+    def _fill_blank_faculty_fields(*, full_name, title, designation):
+        """Tops up empty title/designation on a faculty record that is
+        already linked to this project.
+
+        Only blanks are written. A value an administrator corrected by hand
+        must survive a backfill, so this can add information but never
+        replace it."""
+        faculty = Faculty.objects.filter(full_name__iexact=full_name).first()
+        if faculty is None:
+            return
+
+        fills = {}
+        if title and not faculty.title:
+            fills["title"] = title
+        if designation and not faculty.designation:
+            fills["designation"] = designation
+        if fills:
+            for field, value in fills.items():
+                setattr(faculty, field, value)
+            faculty.save(update_fields=list(fills))
 
     @staticmethod
     def _resolve_faculty(*, full_name, department, designation, title):

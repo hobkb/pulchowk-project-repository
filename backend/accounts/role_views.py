@@ -12,7 +12,7 @@ from rest_framework import permissions
 from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 
-from core.responses import success_response
+from core.responses import paginated_response, success_response
 from notifications.services import NotificationService
 
 from .models import RoleElevationRequest, UserRole
@@ -61,7 +61,12 @@ class RoleRequestQueueView(APIView):
         wanted = (request.query_params.get("status") or "").strip().upper()
         if wanted in RoleElevationRequest.Status.values:
             rows = rows.filter(status=wanted)
-        return success_response(data=[serialize(r) for r in rows])
+        return paginated_response(
+            request,
+            rows,
+            lambda page: [serialize(r) for r in page],
+            page_size=5,
+        )
 
 
 class RoleRequestDecisionView(APIView):

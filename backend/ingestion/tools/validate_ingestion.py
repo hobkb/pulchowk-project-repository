@@ -459,14 +459,14 @@ def validate_file(path: Path) -> FileReport:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001
-        report.error = f"Could not parse JSON: {exc}"
+        report.error = f"Could not parse JSON: {type(exc).__name__}"
         return report
 
     for check in CHECKS:
         try:
             check(data, report)
         except Exception as exc:  # noqa: BLE001 -- one broken check must not abort the whole report
-            report.add("MEDIUM", "validator", f"Check {check.__name__} raised an error: {exc}")
+            report.add("MEDIUM", "validator", f"Check {check.__name__} raised {type(exc).__name__}.")
 
     report.findings.sort(key=lambda f: SEVERITY_ORDER.get(f.severity, 3))
     return report

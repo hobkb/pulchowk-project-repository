@@ -122,10 +122,7 @@ export default function AdminUpload() {
       </Breadcrumb>
 
       <Container width="reading" className="px-5 sm:px-8 py-8">
-      <PageHeading
-        title="Deposit a report"
-        lead="Hand a project report to the extraction pipeline. It reads the front matter, people and section structure, then returns it to you for verification before anything is published."
-      />
+      <PageHeading title="Deposit a report" />
 
       <form onSubmit={handleSubmit} className="mt-7 flex flex-col gap-6">
         <div>
@@ -246,7 +243,7 @@ export default function AdminUpload() {
               <>
                 <FontAwesomeIcon
                   icon={faSpinner}
-                  className="h-3.5 w-3.5 animate-spin"
+                  className="h-3.5 w-3.5 spin"
                   aria-hidden="true"
                 />
                 {phase === UPLOADING
@@ -265,24 +262,6 @@ export default function AdminUpload() {
         </div>
       </form>
 
-      <section className="mt-10">
-        <SectionHeading title="What happens next" />
-        <ol className="divide-y divide-line border-t border-line">
-          {[
-            ["Extraction", "The pipeline reads the PDF's layout: front matter, authors and roll numbers, supervisors, and the full nested section structure."],
-            ["Verification", "You review what was extracted, correct anything the document made ambiguous, and reorder or edit sections as needed."],
-            ["Publication", "On approval the record joins the public catalogue, and the depositor receives a notice."],
-          ].map(([title, body], index) => (
-            <li key={title} className="flex gap-4 py-4">
-              <span className="shrink-0 text-sm font-semibold text-accent tnum">{index + 1}.</span>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-ink">{title}</p>
-                <p className="mt-0.5 text-sm text-ink-2 measure">{body}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </section>
       </Container>
     </>
   );

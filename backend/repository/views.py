@@ -3,7 +3,7 @@ from rest_framework import permissions
 from rest_framework.exceptions import NotFound
 from rest_framework.views import APIView
 
-from core.responses import success_response
+from core.responses import paginated_response, success_response
 from organization.departments import CANONICAL_DEPARTMENTS
 from repository.models import Project
 from repository.serializers import ProjectDetailSerializer, ProjectListSerializer
@@ -36,8 +36,14 @@ SEARCH_FIELDS = (
     "title",
     "abstract",
     "batch",
+    "cluster",
     "department__name",
     "project_people__person__full_name",
+    # A supervisor is looked for by rank as often as by name -- "professor
+    # shrestha" and "assoc prof" are both things people type -- so the
+    # academic title and designation are searchable alongside the name.
+    "project_people__person__faculty__title",
+    "project_people__person__faculty__designation",
     "project_keywords__keyword__name",
     "project_domains__domain__name",
 )
@@ -73,12 +79,15 @@ FILTERS = {
     "department": lambda qs, v: qs.filter(department__name__iexact=v),
     "academic_level": lambda qs, v: qs.filter(academic_level__iexact=v),
     "batch": lambda qs, v: qs.filter(batch__iexact=v),
-    "cluster": lambda qs, v: qs.filter(cluster__iexact=v),
+    # Substring rather than exact: these are values a reader types as well
+    # as clicks. A facet click still sends the full value and still matches,
+    # but "aiml" typed by hand, or a surname on its own, now works too.
+    "cluster": lambda qs, v: qs.filter(cluster__icontains=v),
     # Matched through the supervisory roles only, so a name that also
     # happens to be an author does not pull in unrelated projects.
     "supervisor": lambda qs, v: qs.filter(
         project_people__role__in=SUPERVISORY_ROLES,
-        project_people__person__full_name__iexact=v,
+        project_people__person__full_name__icontains=v,
     ),
 }
 
@@ -119,6 +128,8 @@ class ProjectListView(APIView):
         batch           exact batch code (e.g. "078")
         cluster         exact research cluster (AIML / ANLP / NTS / ...)
         supervisor      exact supervisor name
+        page            1-based page number (default 1)
+        page_size       rows per page (default 12, max 100)
     """
 
     permission_classes = [permissions.AllowAny]
@@ -131,15 +142,16 @@ class ProjectListView(APIView):
         # default rather than whatever order the database returns.
         queryset = queryset.distinct().order_by("-created_at", "-id")
 
-        projects = list(queryset)
-        serializer = ProjectListSerializer(
-            projects,
-            many=True,
-            context={"request": request},
-        )
-
-        return success_response(
-            data=serializer.data,
+        # Paged in the database rather than in Python: the catalogue grows
+        # without bound, and serializing every published project to return
+        # twelve of them would get slower with every deposit.
+        return paginated_response(
+            request,
+            queryset,
+            lambda rows: ProjectListSerializer(
+                rows, many=True, context={"request": request}
+            ).data,
+            page_size=5,
             message="Projects retrieved successfully.",
         )
 
@@ -181,18 +193,44 @@ class ProjectFacetsView(APIView):
         batches = counts_for("batch", "batch", "-batch")
         clusters = counts_for("cluster", "cluster", "cluster")
 
+        # A supervisor is recognised by rank as much as by name, so the
+        # academic title and designation travel with the name. `name` stays
+        # the bare full name because it is what the `supervisor` filter
+        # matches on; `title` and `designation` are for display only.
         supervisor_rows = (
             apply_filters(base, params, exclude="supervisor")
             .filter(project_people__role__in=SUPERVISORY_ROLES)
-            .values("project_people__person__full_name")
+            .values(
+                "project_people__person__full_name",
+                "project_people__person__faculty__title",
+                "project_people__person__faculty__designation",
+            )
             .annotate(total=Count("id", distinct=True))
             .order_by("project_people__person__full_name")
         )
-        supervisors = [
-            {"name": row["project_people__person__full_name"], "count": row["total"]}
-            for row in supervisor_rows
-            if row["project_people__person__full_name"]
-        ]
+
+        # One person can appear under several designations across projects
+        # (promoted between reports, or recorded inconsistently). They are
+        # one filter option, so the rows are merged on the name and the
+        # fullest designation seen is the one shown.
+        merged = {}
+        for row in supervisor_rows:
+            name = row["project_people__person__full_name"]
+            if not name:
+                continue
+            entry = merged.setdefault(
+                name, {"name": name, "count": 0, "title": "", "designation": ""}
+            )
+            entry["count"] += row["total"]
+            for key, column in (
+                ("title", "project_people__person__faculty__title"),
+                ("designation", "project_people__person__faculty__designation"),
+            ):
+                value = (row[column] or "").strip()
+                if len(value) > len(entry[key]):
+                    entry[key] = value
+
+        supervisors = sorted(merged.values(), key=lambda entry: entry["name"])
 
         return success_response(
             data={

@@ -16,6 +16,15 @@ class GoogleAuthenticationError(Exception):
     """Raised when Google authentication fails."""
 
 
+class ProfileConflict(Exception):
+    """
+    Raised when a profile cannot be saved because the identity it claims
+    belongs to an existing record. Surfaced to the client as a 400 with an
+    explanation, rather than reaching the database and becoming an opaque
+    "duplicate key" 500.
+    """
+
+
 class GoogleService:
     """
     Service responsible for verifying Google ID tokens.
@@ -128,6 +137,20 @@ class ProfileService:
         return UserRole.FACULTY
 
     @staticmethod
+    def verified_roll_number(email: str):
+        """
+        The roll number proven by the institutional address, or None.
+
+        Addresses are issued by the campus, so a roll number in the local
+        part is evidence. Anything typed into the form is not -- which is
+        why this is the only source allowed to claim an existing record.
+        """
+        candidate = clean_roll_number(
+            ProfileService.extract_roll_number_from_email(email)
+        )
+        return candidate if ROLL_PATTERN.fullmatch(candidate or "") else None
+
+    @staticmethod
     def extract_roll_number_from_email(email: str) -> str:
         """
         Extracts student roll number from email (e.g. 080bct077.sarthak@pcampus.edu.np -> 080BCT077).
@@ -184,81 +207,122 @@ class ProfileService:
     @transaction.atomic
     def save_student_profile(user: User, data: dict) -> Student:
         """
-        Updates an existing student record (matched strictly by email) or creates a new one.
+        Links the signed-in user to their Student record.
 
-        The roll number is read from the verified institutional address
-        when that address carries one, and otherwise taken from what the
-        student entered. Deriving it unconditionally meant an address whose
-        local part is a name rather than a roll ("siwansh@...") stored the
-        name as the roll number and silently discarded what was typed.
+        Publishing a project already creates Student rows from roll numbers
+        read out of the PDF, so the record this person needs usually exists
+        before they ever sign in. Adopting it is the right outcome -- but
+        only when the roll number came from the verified campus address.
+        A typed roll number is an assertion, not proof, so it may create a
+        record but never take over one that already exists.
         """
         email = user.email
-        derived_roll = ProfileService.extract_roll_number_from_email(email)
-        submitted_roll = clean_roll_number(str(data.get("roll_number") or "").strip())
-        if not ROLL_PATTERN.fullmatch(derived_roll or ""):
-            derived_roll = submitted_roll
-        existing_student = Student.objects.filter(email=email).first()
+        verified_roll = ProfileService.verified_roll_number(email)
+        typed_roll = clean_roll_number(str(data.get("roll_number") or "").strip())
+        roll = verified_roll or typed_roll
+
+        if not roll:
+            raise ProfileConflict(
+                "A roll number is required. Enter the roll number printed on "
+                "your registration record."
+            )
+
+        existing = Student.objects.filter(email=email).first()
+        by_roll = Student.objects.filter(roll_number=roll).first()
+
+        if by_roll is not None and by_roll != existing:
+            if verified_roll:
+                # Their own address carries this roll number, so the record
+                # extracted from their report is theirs to take over.
+                existing = by_roll
+            else:
+                raise ProfileConflict(
+                    f"Roll number {roll} is already registered to another "
+                    "account. If this is yours, contact your department "
+                    "administrator."
+                )
+
+        # A Person row holding this address that is not a student cannot be
+        # converted into one -- Person/Student is a table-per-type split.
+        clash = Person.objects.filter(email=email)
+        if existing is not None:
+            clash = clash.exclude(pk=existing.pk)
+        if clash.exists():
+            raise ProfileConflict(
+                "This email address is already recorded against a different "
+                "person in the repository. Contact your department "
+                "administrator to have the records merged."
+            )
+
         full_name = normalize_person_name(data["full_name"])
 
-        if existing_student:
-            existing_student.full_name = full_name
-            existing_student.academic_level = data["academic_level"]
-            existing_student.roll_number = derived_roll
+        if existing is not None:
+            existing.full_name = full_name
+            existing.email = email
+            existing.academic_level = data["academic_level"]
+            existing.roll_number = roll
             if data.get("department_id"):
-                existing_student.department_id = data["department_id"]
-            existing_student.save()
-            student = existing_student
-        else:
-            student = Student.objects.create(
-                email=email,
-                full_name=full_name,
-                academic_level=data["academic_level"],
-                roll_number=derived_roll,
-                department_id=data.get("department_id"),
-            )
-        return student
+                existing.department_id = data["department_id"]
+            existing.save()
+            return existing
+
+        return Student.objects.create(
+            email=email,
+            full_name=full_name,
+            academic_level=data["academic_level"],
+            roll_number=roll,
+            department_id=data.get("department_id"),
+        )
 
 
     @staticmethod
     @transaction.atomic
     def save_faculty_profile(user: User, data: dict) -> Faculty:
         """
-        Updates an existing faculty record (matched by faculty_id, email, or full_name) or creates a new one.
+        Links the signed-in user to their Faculty record.
+
+        Matched on the verified email address and nothing else. The previous
+        lookup also matched on full name and honoured a `faculty_id` sent by
+        the client, which meant typing or selecting a supervisor's name
+        handed over that supervisor's person record -- and with it every
+        project already attributed to them. A name is not a credential.
+
+        When no record carries this address a new one is created. If that
+        turns out to duplicate someone already extracted from a report, an
+        administrator merges them; a wrong merge is far cheaper to undo than
+        a wrongly claimed identity.
         """
         email = user.email
-        full_name = data["full_name"].strip()
-        faculty_id = data.get("faculty_id")
-
-        existing_faculty = None
-        if faculty_id:
-            existing_faculty = Faculty.objects.filter(id=faculty_id).first()
         full_name = normalize_person_name(data["full_name"].strip())
 
-        if not existing_faculty:
-            existing_faculty = Faculty.objects.filter(
-                models.Q(email=email) | models.Q(full_name__iexact=full_name)
-            ).first()
+        existing = Faculty.objects.filter(email=email).first()
 
-        if existing_faculty:
-            existing_faculty.email = email
-            existing_faculty.full_name = full_name
-            existing_faculty.title = data.get("title", existing_faculty.title)
-            existing_faculty.designation = data.get("designation", existing_faculty.designation)
-            if data.get("department_id"):
-                existing_faculty.department_id = data["department_id"]
-            if data.get("research_group_id"):
-                existing_faculty.research_group_id = data["research_group_id"]
-            existing_faculty.save()
-            faculty = existing_faculty
-        else:
-            faculty = Faculty.objects.create(
-                email=email,
-                full_name=full_name,
-                title=data.get("title", ""),
-                designation=data.get("designation", ""),
-                department_id=data.get("department_id"),
-                research_group_id=data.get("research_group_id"),
+        clash = Person.objects.filter(email=email)
+        if existing is not None:
+            clash = clash.exclude(pk=existing.pk)
+        if clash.exists():
+            raise ProfileConflict(
+                "This email address is already recorded against a different "
+                "person in the repository. Contact your department "
+                "administrator to have the records merged."
             )
-        return faculty
 
+        if existing is not None:
+            existing.full_name = full_name
+            existing.title = data.get("title", existing.title)
+            existing.designation = data.get("designation", existing.designation)
+            if data.get("department_id"):
+                existing.department_id = data["department_id"]
+            if data.get("research_group_id"):
+                existing.research_group_id = data["research_group_id"]
+            existing.save()
+            return existing
 
+        return Faculty.objects.create(
+            email=email,
+            full_name=full_name,
+            title=data.get("title", ""),
+            designation=data.get("designation", ""),
+            department_id=data.get("department_id"),
+            research_group_id=data.get("research_group_id"),
+        )

@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFolderOpen, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { projectsApi } from "../api/client";
+import { academicLevelLabel, batchLabel, personDisplayName } from "../lib/labels";
 import { ProjectRecord } from "../components/ProjectRecord";
 import {
   Alert,
@@ -11,6 +12,7 @@ import {
   Container,
   Crumb,
   EmptyState,
+  Pagination,
   ErrorNotice,
   LoadingRows,
   SearchField,
@@ -36,11 +38,6 @@ const DEBOUNCE_MS = 300;
 /** Batches are stored as a three-digit admission code ("078"); readers
  *  know them as the Bikram Sambat year, so that is what is shown. The
  *  stored code remains the filter value. */
-function batchYear(code) {
-  const text = String(code ?? "").trim();
-  return /^\d{3}$/.test(text) ? `20${text.slice(-2)}` : text;
-}
-
 function useDebounced(value, delay) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -52,7 +49,7 @@ function useDebounced(value, delay) {
 
 /** A filter group: options with the real number of records behind each,
  *  so nothing is offered that would return nothing. */
-function Facet({ legend, options, value, onChange, formatLabel = (v) => v }) {
+function Facet({ legend, options, value, onChange, formatLabel = (v) => v, subLabel = () => null }) {
   if (!options || options.length === 0) return null;
 
   return (
@@ -80,7 +77,14 @@ function Facet({ legend, options, value, onChange, formatLabel = (v) => v }) {
                       : "cursor-pointer text-ink-2 hover:bg-band hover:text-ink"
                 }`}
               >
-                <span className="min-w-0">{formatLabel(option.name)}</span>
+                <span className="min-w-0">
+                  <span className="block truncate">{formatLabel(option.name)}</span>
+                  {subLabel(option) && (
+                    <span className="block truncate text-xs font-normal text-ink-3">
+                      {subLabel(option)}
+                    </span>
+                  )}
+                </span>
                 <span className="shrink-0 text-xs text-ink-3 tnum">{option.count}</span>
               </button>
             </li>
@@ -100,6 +104,9 @@ export default function BrowseProjects() {
   const batch = searchParams.get("batch") || "";
   const cluster = searchParams.get("cluster") || "";
   const supervisor = searchParams.get("supervisor") || "";
+  // The page lives in the URL alongside the filters, so the back button and
+  // a shared link both land on the page the reader was actually looking at.
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
 
   const [queryInput, setQueryInput] = useState(queryParam);
   const debouncedQuery = useDebounced(queryInput, DEBOUNCE_MS);
@@ -108,6 +115,7 @@ export default function BrowseProjects() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [facets, setFacets] = useState(null);
+  const [pagination, setPagination] = useState(null);
 
   useEffect(() => {
     setQueryInput((current) => (current === queryParam ? current : queryParam));
@@ -122,6 +130,9 @@ export default function BrowseProjects() {
             if (value) next.set(key, value);
             else next.delete(key);
           });
+          // Changing what is being filtered invalidates the current page
+          // number; only an explicit page change keeps it.
+          if (!("page" in changes)) next.delete("page");
           return next;
         },
         { replace: true }
@@ -176,31 +187,34 @@ export default function BrowseProjects() {
           batch,
           cluster,
           supervisor,
+          page,
         },
         { signal: controller.signal }
       )
       .then((body) => {
         if (controller.signal.aborted) return;
         setProjects(body.data || []);
+        setPagination(body.pagination || null);
       })
       .catch((err) => {
         if (controller.signal.aborted || err.name === "AbortError") return;
         setError(err.message);
         setProjects([]);
+        setPagination(null);
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
 
     return () => controller.abort();
-  }, [queryParam, department, academicLevel, batch, cluster, supervisor]);
+  }, [queryParam, department, academicLevel, batch, cluster, supervisor, page]);
 
   const activeFilters = useMemo(
     () =>
       [
         department && { key: "department", label: department },
         academicLevel && { key: "academic_level", label: academicLevel },
-        batch && { key: "batch", label: `Batch ${batchYear(batch)}` },
+        batch && { key: "batch", label: `Batch ${batchLabel(batch)}` },
         cluster && { key: "cluster", label: cluster },
         supervisor && { key: "supervisor", label: supervisor },
       ].filter(Boolean),
@@ -237,17 +251,13 @@ export default function BrowseProjects() {
 
       <Container width="wide" className="px-5 sm:px-8 py-8">
         <h1 className="text-title">Search projects</h1>
-        <p className="mt-1.5 text-sm text-ink-2 measure">
-          Keyword search across project titles, abstracts, authors, supervisors, keywords and
-          departments.
-        </p>
 
         <div className="mt-5 max-w-2xl">
           <SearchField
             value={queryInput}
             onChange={setQueryInput}
             onSubmit={(value) => updateParams({ q: value.trim() })}
-            placeholder="Search by title, author, supervisor or keyword"
+            placeholder="Search by title, author, supervisor, rank, cluster or keyword"
             size="lg"
           />
         </div>
@@ -287,6 +297,7 @@ export default function BrowseProjects() {
                 onChange={(value) => updateParams({ department: value })}
               />
               <Facet
+                formatLabel={academicLevelLabel}
                 legend="Academic level"
                 options={facets.academic_levels}
                 value={academicLevel}
@@ -297,7 +308,7 @@ export default function BrowseProjects() {
                 options={facets.batches}
                 value={batch}
                 onChange={(value) => updateParams({ batch: value })}
-                formatLabel={batchYear}
+                formatLabel={batchLabel}
               />
               {/* Both of these are built from real project data returned by
                   the facets endpoint — no hardcoded names or codes. */}
@@ -312,6 +323,11 @@ export default function BrowseProjects() {
                 options={facets.supervisors}
                 value={supervisor}
                 onChange={(value) => updateParams({ supervisor: value })}
+                formatLabel={(name) => {
+                  const row = facets.supervisors.find((s) => s.name === name);
+                  return personDisplayName({ name, title: row?.title });
+                }}
+                subLabel={(option) => option.designation || null}
               />
             </aside>
           )}
@@ -391,12 +407,19 @@ export default function BrowseProjects() {
               </div>
             )}
 
-            {!loading && !error && projects.length > 0 && (
-              <Alert tone="info" className="mt-6">
-                Full project reports are confidential. Each record shows its abstract and
-                catalogue details; the report itself can be requested from its authors.
-              </Alert>
+            {!loading && !error && pagination && (
+              <Pagination
+                page={pagination.page}
+                totalPages={pagination.total_pages}
+                totalCount={pagination.total_count}
+                label="projects"
+                onChange={(next) => {
+                  updateParams({ page: next > 1 ? String(next) : "" });
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+              />
             )}
+
           </div>
         </div>
       </Container>

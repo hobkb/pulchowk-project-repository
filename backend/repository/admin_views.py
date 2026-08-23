@@ -12,7 +12,8 @@ from rest_framework import permissions, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.views import APIView
 
-from core.responses import success_response
+from core.responses import paginated_response, success_response
+from notifications.models import Notification
 from notifications.services import NotificationService
 from organization.departments import canonical_department
 from organization.models import Department
@@ -102,6 +103,52 @@ class ProjectAccessRequestCreateView(APIView):
         )
 
 
+class ProjectAccessRequestCancelView(APIView):
+    """
+    A reader withdraws their own pending request.
+
+    The request is deleted rather than marked cancelled: a withdrawn ask
+    is not a decision anyone needs to see, and leaving it in the queue
+    would have reviewers acting on something no longer wanted. The
+    notifications it raised go with it, so reviewers are not left holding
+    a link to a request that no longer exists.
+
+    Only a PENDING request can be withdrawn. An approved one is not the
+    reader's to revoke -- that is the department's call -- and a declined
+    one has already been acted on.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, project_id):
+        access_request = ProjectAccessRequest.objects.filter(
+            project_id=project_id,
+            requester=request.user,
+            status=ProjectAccessRequest.Status.PENDING,
+        ).first()
+
+        if access_request is None:
+            raise ValidationError(
+                {"detail": "You have no pending request for this report."}
+            )
+
+        # The reviewers' copies of "someone asked for this report" go
+        # with the request itself, so nobody is left holding a link to a
+        # request that no longer exists.
+        Notification.objects.filter(
+            notification_type=Notification.NotificationType.ACCESS_REQUESTED,
+            project_id=project_id,
+            actor=request.user,
+        ).delete()
+
+        access_request.delete()
+
+        return success_response(
+            data={"project": project_id, "status": "none"},
+            message="Your request has been withdrawn.",
+        )
+
+
 class MyAccessRequestsView(APIView):
     """The signed-in user's own requests, so the project page can show
     their state without exposing anyone else's."""
@@ -114,7 +161,12 @@ class MyAccessRequestsView(APIView):
             .select_related("project", "requester")
             .order_by("-created_at")
         )
-        return success_response(data=[serialize_access_request(r) for r in rows])
+        return paginated_response(
+            request,
+            rows,
+            lambda page: [serialize_access_request(r) for r in page],
+            page_size=5,
+        )
 
 
 class AccessRequestQueueView(APIView):
@@ -131,7 +183,12 @@ class AccessRequestQueueView(APIView):
         if requested_status in ProjectAccessRequest.Status.values:
             rows = rows.filter(status=requested_status)
 
-        return success_response(data=[serialize_access_request(r) for r in rows])
+        return paginated_response(
+            request,
+            rows,
+            lambda page: [serialize_access_request(r) for r in page],
+            page_size=5,
+        )
 
 
 class AccessRequestDecisionView(APIView):

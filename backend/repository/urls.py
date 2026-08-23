@@ -4,6 +4,7 @@ from .admin_views import (
     AccessRequestDecisionView,
     AccessRequestQueueView,
     MyAccessRequestsView,
+    ProjectAccessRequestCancelView,
     ProjectAccessRequestCreateView,
     ProjectManageView,
 )
@@ -30,6 +31,11 @@ urlpatterns = [
         "projects/<int:project_id>/access-request/",
         ProjectAccessRequestCreateView.as_view(),
         name="access-request-create",
+    ),
+    path(
+        "projects/<int:project_id>/access-request/cancel/",
+        ProjectAccessRequestCancelView.as_view(),
+        name="access-request-cancel",
     ),
     path("access-requests/mine/", MyAccessRequestsView.as_view(), name="access-request-mine"),
     path("access-requests/", AccessRequestQueueView.as_view(), name="access-request-queue"),

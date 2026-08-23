@@ -5,7 +5,7 @@ import {
   faArrowUpRightFromSquare,
   faBookmark as faBookmarkSolid,
   faCheck,
-  faEnvelope,
+  faLockOpen,
   faLink,
   faSpinner,
   faTrash,
@@ -16,6 +16,7 @@ import { accessRequestsApi, bookmarksApi, projectAdminApi, projectsApi } from ".
 import { useAuth } from "../context/AuthContext";
 import { isAdminUser } from "../lib/nav";
 import { RestrictedReport } from "../components/RestrictedReport";
+import { academicLevelLabel, batchLabel } from "../lib/labels";
 import {
   Alert,
   Breadcrumb,
@@ -89,7 +90,7 @@ function ReportRequestDialog({ open, onClose, project, onSubmitted }) {
           </Button>
           <Button type="submit" form="access-request-form" variant="primary" disabled={submitting}>
             {submitting && (
-              <FontAwesomeIcon icon={faSpinner} className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              <FontAwesomeIcon icon={faSpinner} className="h-3.5 w-3.5 spin" aria-hidden="true" />
             )}
             {submitting ? "Sending…" : "Send request"}
           </Button>
@@ -188,7 +189,7 @@ function EditProjectDialog({ open, onClose, project, onSaved }) {
           </Button>
           <Button type="submit" form="edit-project-form" variant="primary" disabled={saving}>
             {saving && (
-              <FontAwesomeIcon icon={faSpinner} className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              <FontAwesomeIcon icon={faSpinner} className="h-3.5 w-3.5 spin" aria-hidden="true" />
             )}
             {saving ? "Saving…" : "Save changes"}
           </Button>
@@ -292,7 +293,7 @@ function DeleteProjectDialog({ open, onClose, project }) {
           </Button>
           <Button variant="danger" onClick={remove} disabled={deleting}>
             {deleting && (
-              <FontAwesomeIcon icon={faSpinner} className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              <FontAwesomeIcon icon={faSpinner} className="h-3.5 w-3.5 spin" aria-hidden="true" />
             )}
             {deleting ? "Deleting…" : "Delete project"}
           </Button>
@@ -328,6 +329,8 @@ export default function ProjectDetails() {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [rechecking, setRechecking] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [actionError, setActionError] = useState(null);
   const [justGranted, setJustGranted] = useState(false);
   const [savePending, setSavePending] = useState(false);
 
@@ -344,10 +347,10 @@ export default function ProjectDetails() {
         const found = body.data;
         setProject(found);
         return projectsApi
-          .list({ department: found.department })
+          .list({ department: found.department, page_size: 5 })
           .then((listBody) => {
             if (cancelled) return;
-            setRelated((listBody.data || []).filter((p) => p.id !== found.id).slice(0, 5));
+            setRelated((listBody.data || []).filter((p) => p.id !== found.id).slice(0, 4));
           })
           .catch(() => {
             if (!cancelled) setRelated([]);
@@ -409,6 +412,20 @@ export default function ProjectDetails() {
       // Leave the page as it is; the reader can try again.
     } finally {
       setRechecking(false);
+    }
+  }
+
+  /** Withdraw a request that has not been decided yet. */
+  async function cancelRequest() {
+    if (cancelling) return;
+    setCancelling(true);
+    try {
+      await accessRequestsApi.cancel(id);
+      setProject((current) => (current ? { ...current, accessStatus: "none" } : current));
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -535,16 +552,32 @@ export default function ProjectDetails() {
                     {rechecking && (
                       <FontAwesomeIcon
                         icon={faSpinner}
-                        className="h-3.5 w-3.5 animate-spin"
+                        className="h-3.5 w-3.5 spin"
                         aria-hidden="true"
                       />
                     )}
                     {rechecking ? "Checking…" : "Check for a decision"}
                   </Button>
+                  <Button
+                    variant="subtle"
+                    size="sm"
+                    onClick={cancelRequest}
+                    disabled={cancelling}
+                    title={actionError || undefined}
+                  >
+                    {cancelling && (
+                      <FontAwesomeIcon
+                        icon={faSpinner}
+                        className="h-3.5 w-3.5 spin"
+                        aria-hidden="true"
+                      />
+                    )}
+                    Cancel request
+                  </Button>
                 </>
               ) : (
                 <Button variant="primary" size="sm" onClick={() => setRequestOpen(true)}>
-                  <FontAwesomeIcon icon={faEnvelope} className="h-3.5 w-3.5" aria-hidden="true" />
+                  <FontAwesomeIcon icon={faLockOpen} className="h-3.5 w-3.5" aria-hidden="true" />
                   {accessStatus === "declined" ? "Request again" : "Request report"}
                 </Button>
               )}
@@ -648,19 +681,54 @@ export default function ProjectDetails() {
                     </Link>
                   }
                 />
-                <ul className="divide-y divide-line border-t border-line">
-                  {related.map((item) => (
-                    <li key={item.id} className="py-3">
-                      <Link to={`/projects/${item.id}`} className="text-sm font-semibold">
-                        {item.title}
-                      </Link>
-                      <p className="mt-0.5 text-xs text-ink-3">
-                        {[item.academic_level, item.batch && `Batch ${item.batch}`]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </p>
-                    </li>
-                  ))}
+                {/* Cards rather than a bare list: at a glance a reader is
+                    deciding whether a neighbouring project is worth
+                    opening, and a title alone does not answer that. The
+                    first line of the abstract and the supervisor do. */}
+                <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {related.map((item) => {
+                    // Already formatted by the serializer as
+                    // "Asst. Prof. Dr. Ram Shrestha" -- rank included.
+                    const supervisor = (item.supervisors || [])[0];
+                    return (
+                      <li key={item.id}>
+                        <Link
+                          to={`/projects/${item.id}`}
+                          className="group flex h-full flex-col rounded-sm border border-line bg-white p-4 no-underline transition-colors hover:border-line-strong hover:bg-band"
+                        >
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {item.academic_level && (
+                              <Status tone="neutral">
+                                {academicLevelLabel(item.academic_level)}
+                              </Status>
+                            )}
+                            {item.batch && (
+                              <span className="text-xs text-ink-3 tnum">
+                                Batch {batchLabel(item.batch)}
+                              </span>
+                            )}
+                            {item.cluster && (
+                              <span className="text-xs text-ink-3">{item.cluster}</span>
+                            )}
+                          </div>
+
+                          <p className="mt-2 text-sm font-semibold text-ink group-hover:text-primary">
+                            {item.title}
+                          </p>
+
+                          {item.abstract && (
+                            <p className="mt-1.5 line-clamp-3 text-xs leading-relaxed text-ink-2">
+                              {item.abstract}
+                            </p>
+                          )}
+
+                          {supervisor && (
+                            <p className="mt-auto pt-3 text-xs text-ink-3">{supervisor}</p>
+                          )}
+                        </Link>
+                      </li>
+                    );
+                  })}
                 </ul>
               </section>
             )}
@@ -672,7 +740,11 @@ export default function ProjectDetails() {
               <CardHeader title="Project details" />
               <dl className="divide-y divide-line px-4">
                 {project.department && <Meta label="Department">{project.department}</Meta>}
-                {project.academic_level && <Meta label="Academic level">{project.academic_level}</Meta>}
+                {project.academic_level && (
+                  <Meta label="Academic level">
+                    {academicLevelLabel(project.academic_level)}
+                  </Meta>
+                )}
                 {project.project_type && <Meta label="Project type">{project.project_type}</Meta>}
                 {(project.batch || project.year) && (
                   <Meta label="Batch">

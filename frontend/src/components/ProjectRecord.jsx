@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Term } from "./ui";
+import { academicLevelLabel } from "../lib/labels";
 
 /**
  * One project in a result list.
@@ -32,7 +33,7 @@ export function ProjectRecord({ project, showAbstract = true }) {
 
   const facts = [
     project.department,
-    project.academic_level,
+    academicLevelLabel(project.academic_level),
     (project.batch || project.year) && `Batch ${batchYear(project.batch || project.year)}`,
     project.project_type,
   ].filter(Boolean);

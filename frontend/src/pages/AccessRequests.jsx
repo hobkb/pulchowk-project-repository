@@ -13,6 +13,7 @@ import {
   ErrorNotice,
   LoadingRows,
   PageHeading,
+  Pagination,
   Status,
 } from "../components/ui";
 
@@ -46,23 +47,28 @@ export default function AccessRequests() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [deciding, setDeciding] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState(null);
   const { refreshUnreadCount } = useNotifications();
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const body = await accessRequestsApi.queue(
-        statusFilter ? { status: statusFilter } : {}
-      );
+      const body = await accessRequestsApi.queue({
+        ...(statusFilter ? { status: statusFilter } : {}),
+        page,
+      });
       setRows(body.data || []);
+      setPagination(body.pagination || null);
     } catch (err) {
       setError(err.message);
       setRows([]);
+      setPagination(null);
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, page]);
 
   useEffect(() => {
     load();
@@ -104,7 +110,7 @@ export default function AccessRequests() {
       <Container width="normal" className="px-5 sm:px-8 py-8">
         <PageHeading
           title="Report access requests"
-          lead="Readers asking for the full report of a project. Approving one makes that report available to that reader straight away and notifies them here."
+          lead="Approving a request opens that report to that reader immediately."
         />
 
         <div className="mt-6 flex flex-wrap gap-x-6 gap-y-1 border-b border-line">
@@ -115,7 +121,10 @@ export default function AccessRequests() {
                 key={option.label}
                 type="button"
                 aria-pressed={selected}
-                onClick={() => setStatusFilter(option.value)}
+                onClick={() => {
+                  setStatusFilter(option.value);
+                  setPage(1);
+                }}
                 className={`-mb-px cursor-pointer border-b-[3px] pb-2 text-sm transition-colors ${
                   selected
                     ? "border-b-ochre font-semibold text-nav"
@@ -193,7 +202,7 @@ export default function AccessRequests() {
                         {deciding === row.id && (
                           <FontAwesomeIcon
                             icon={faSpinner}
-                            className="h-3.5 w-3.5 animate-spin"
+                            className="h-3.5 w-3.5 spin"
                             aria-hidden="true"
                           />
                         )}
@@ -212,6 +221,16 @@ export default function AccessRequests() {
                 </li>
               ))}
             </ul>
+          )}
+
+          {!loading && !error && pagination && (
+            <Pagination
+              page={pagination.page}
+              totalPages={pagination.total_pages}
+              totalCount={pagination.total_count}
+              label="requests"
+              onChange={setPage}
+            />
           )}
         </div>
       </Container>

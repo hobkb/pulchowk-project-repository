@@ -26,10 +26,12 @@ class Project(models.Model):
         ("Faculty Project", "Faculty Project"),
         ("Research", "Research"),
     ]
+    # The value is what is stored and filtered on; the label is what a
+    # reader sees. Nothing in the interface should show a bare code.
     ACADEMIC_LEVELS = [
-        ("UG", "UG"),
+        ("UG", "Undergraduate"),
         ("Masters", "Masters"),
-        ("PhD", "PhD"),
+        ("PhD", "Doctor of Philosophy"),
         ("Faculty", "Faculty"),
     ]
     STATUS_CHOICES = [

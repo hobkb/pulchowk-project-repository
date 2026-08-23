@@ -93,6 +93,7 @@ class NotificationService:
                     notification_type=Notification.NotificationType.ACCESS_REQUESTED,
                     message=f'{who} requested the full report for "{access_request.project.title}".',
                     project=access_request.project,
+                    actor=access_request.requester,
                 )
                 for admin in recipients
             ]

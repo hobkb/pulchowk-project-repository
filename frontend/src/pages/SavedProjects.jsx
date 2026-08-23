@@ -9,6 +9,7 @@ import {
   Container,
   Crumb,
   EmptyState,
+  Pagination,
   ErrorNotice,
   LoadingRows,
   PageHeading,
@@ -25,13 +26,18 @@ export default function SavedProjects() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
     bookmarksApi
-      .list()
+      .list({ page })
       .then((body) => {
-        if (!cancelled) setProjects(body.data || []);
+        if (cancelled) return;
+        setProjects(body.data || []);
+        setPagination(body.pagination || null);
       })
       .catch((err) => {
         if (!cancelled) setError(err.message);
@@ -42,7 +48,7 @@ export default function SavedProjects() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [page]);
 
   return (
     <>
@@ -56,7 +62,6 @@ export default function SavedProjects() {
       <Container width="normal" className="px-5 sm:px-8 py-8">
         <PageHeading
           title="Saved projects"
-          lead="Projects you have saved for later. Your saved list is private to your account."
         />
 
         <div className="mt-6">
@@ -85,6 +90,19 @@ export default function SavedProjects() {
                 <ProjectRecord key={project.id} project={project} />
               ))}
             </div>
+          )}
+
+          {!loading && !error && pagination && (
+            <Pagination
+              page={pagination.page}
+              totalPages={pagination.total_pages}
+              totalCount={pagination.total_count}
+              label="saved"
+              onChange={(next) => {
+                setPage(next);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            />
           )}
         </div>
       </Container>

@@ -420,7 +420,7 @@ export function EmptyState({ icon, title, description, action, className = "" })
 }
 
 /** A full-page state: not found, restricted, processing, coming soon. */
-export function PageState({ tone = "neutral", icon, eyebrow, title, description, actions, children }) {
+export function PageState({ tone = "neutral", icon, spin = false, eyebrow, title, description, actions, children }) {
   const t = TONE[tone];
   return (
     <div className="mx-auto max-w-lg py-16 text-center flex flex-col items-center gap-4">
@@ -428,7 +428,11 @@ export function PageState({ tone = "neutral", icon, eyebrow, title, description,
         <span
           className={`inline-flex h-12 w-12 items-center justify-center rounded-md border border-line bg-band ${t.text}`}
         >
-          <FontAwesomeIcon icon={icon} className="h-5 w-5" aria-hidden="true" />
+          <FontAwesomeIcon
+            icon={icon}
+            className={`h-5 w-5 ${spin ? "spin" : ""}`}
+            aria-hidden="true"
+          />
         </span>
       )}
       {eyebrow && <Status tone={tone}>{eyebrow}</Status>}
@@ -576,4 +580,103 @@ export const SectionHead = ({ number, title, aside, ...rest }) => (
 
 export function Prose({ children, className = "" }) {
   return <div className={`text-base text-ink-2 measure ${className}`}>{children}</div>;
+}
+
+/**
+ * Page controls for a list.
+ *
+ * Shows a windowed range of page numbers rather than every page, so a
+ * catalogue with sixty pages does not produce sixty buttons. The current
+ * page always sits inside the window, and first/last are always reachable
+ * so no page is more than three clicks away.
+ *
+ * Renders nothing for a single page — controls that can only ever be
+ * disabled are noise.
+ */
+export function Pagination({ page, totalPages, totalCount, onChange, label = "results" }) {
+  if (!totalPages || totalPages < 2) return null;
+
+  const window = [];
+  const span = 2; // pages either side of the current one
+  let start = Math.max(1, page - span);
+  let end = Math.min(totalPages, page + span);
+
+  // Keep the window a constant width even at the ends, so the controls do
+  // not change size as the reader moves through the list.
+  if (end - start < span * 2) {
+    if (start === 1) end = Math.min(totalPages, start + span * 2);
+    else start = Math.max(1, end - span * 2);
+  }
+  for (let i = start; i <= end; i += 1) window.push(i);
+
+  const base =
+    "min-w-9 cursor-pointer rounded-sm border px-2.5 py-1.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40";
+  const idle = "border-line bg-white text-ink-2 hover:border-line-strong hover:text-ink";
+  const current = "border-primary bg-primary font-semibold text-white";
+
+  return (
+    <nav
+      aria-label="Pagination"
+      className="mt-8 flex flex-wrap items-center justify-between gap-4 border-t border-line pt-5"
+    >
+      <p className="text-sm text-ink-2 tnum">
+        Page {page} of {totalPages}
+        {typeof totalCount === "number" && ` · ${totalCount.toLocaleString()} ${label}`}
+      </p>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          className={`${base} ${idle}`}
+          onClick={() => onChange(page - 1)}
+          disabled={page <= 1}
+        >
+          Previous
+        </button>
+
+        {start > 1 && (
+          <>
+            <button type="button" className={`${base} ${idle}`} onClick={() => onChange(1)}>
+              1
+            </button>
+            {start > 2 && <span className="px-1 text-sm text-ink-3">…</span>}
+          </>
+        )}
+
+        {window.map((n) => (
+          <button
+            key={n}
+            type="button"
+            aria-current={n === page ? "page" : undefined}
+            className={`${base} ${n === page ? current : idle}`}
+            onClick={() => onChange(n)}
+          >
+            {n}
+          </button>
+        ))}
+
+        {end < totalPages && (
+          <>
+            {end < totalPages - 1 && <span className="px-1 text-sm text-ink-3">…</span>}
+            <button
+              type="button"
+              className={`${base} ${idle}`}
+              onClick={() => onChange(totalPages)}
+            >
+              {totalPages}
+            </button>
+          </>
+        )}
+
+        <button
+          type="button"
+          className={`${base} ${idle}`}
+          onClick={() => onChange(page + 1)}
+          disabled={page >= totalPages}
+        >
+          Next
+        </button>
+      </div>
+    </nav>
+  );
 }

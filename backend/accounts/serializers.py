@@ -121,6 +121,13 @@ class UserSerializer(serializers.ModelSerializer):
             data["kind"] = "student"
             data["roll_number"] = student.roll_number
             data["academic_level"] = student.academic_level
+            # A roll number proven by the campus address is not the user's
+            # to change; the client disables the field, and the server
+            # ignores any value sent for it regardless.
+            data["roll_number_locked"] = bool(
+                ProfileService.verified_roll_number(obj.email)
+            )
+            data["department_id"] = person.department_id
             return data
 
         faculty = getattr(person, "faculty", None)
@@ -131,6 +138,8 @@ class UserSerializer(serializers.ModelSerializer):
             data["research_group"] = (
                 faculty.research_group.name if faculty.research_group_id else None
             )
+            data["research_group_id"] = faculty.research_group_id
+            data["department_id"] = person.department_id
             return data
 
         return data

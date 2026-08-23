@@ -179,7 +179,7 @@ function Spinner({ className = "" }) {
   return (
     <FontAwesomeIcon
       icon={faSpinner}
-      className={`h-3.5 w-3.5 animate-spin ${className}`}
+      className={`h-3.5 w-3.5 spin ${className}`}
       aria-hidden="true"
     />
   );
@@ -577,6 +577,8 @@ export default function IngestionWorkflow() {
   const [error, setError] = useState(null);
   const [logs, setLogs] = useState([]);
   const [showLogs, setShowLogs] = useState(false);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState(null);
 
   // Side-by-side PDF preview toggle
   const [showPdf, setShowPdf] = useState(true);
@@ -828,14 +830,30 @@ export default function IngestionWorkflow() {
     );
   }, [filteredFacultyList, facultyList, facultySearch]);
 
-  // Fetch logs on demand
+  // Fetch logs on demand, and toggle the panel shut on a second click.
+  //
+  // A failure used to go to console.error and nowhere else, so a request
+  // that 403'd or timed out was indistinguishable from a dead button. The
+  // outcome is now always visible: a spinner while it runs, the entries if
+  // it worked, and the reason if it did not.
   const handleFetchLogs = async () => {
+    if (showLogs) {
+      setShowLogs(false);
+      return;
+    }
+    if (logsLoading) return;
+
+    setLogsLoading(true);
+    setLogsError(null);
+    setShowLogs(true);
     try {
       const res = await ingestionApi.getJobLogs(id);
       setLogs(res.data || []);
-      setShowLogs(true);
     } catch (err) {
-      console.error(err);
+      setLogsError(err.message || "The processing log could not be loaded.");
+      setLogs([]);
+    } finally {
+      setLogsLoading(false);
     }
   };
 
@@ -970,7 +988,6 @@ export default function IngestionWorkflow() {
     if (!projectFields.batch || !/^\d{3}$/.test(projectFields.batch)) {
       errors.batch = "Batch must be exactly 3 digits (e.g. 078).";
     }
-    if (!projectFields.cluster) errors.cluster = "Select a cluster.";
     if (!projectFields.department_name) errors.department_name = "Select a department.";
 
     const validAuthors = authors.filter((a) => a.full_name.trim());
@@ -1107,7 +1124,14 @@ export default function IngestionWorkflow() {
   const logPanel = showLogs && (
     <div className="w-full text-left border border-line-soft rounded-sm p-4 tnum text-xs max-h-64 overflow-y-auto bg-band">
       <p className="mb-2 text-xs font-semibold text-ink-3">Processing log</p>
-      {logs.length === 0 ? (
+      {logsLoading ? (
+        <p className="flex items-center gap-2 text-ink-3">
+          <FontAwesomeIcon icon={faSpinner} className="spin h-3 w-3" aria-hidden="true" />
+          Loading the processing log…
+        </p>
+      ) : logsError ? (
+        <p className="text-err">{logsError}</p>
+      ) : logs.length === 0 ? (
         <p className="text-ink-3">No processing log entries yet.</p>
       ) : (
         logs.map((l) => (
@@ -1122,7 +1146,7 @@ export default function IngestionWorkflow() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 gap-4">
-        <FontAwesomeIcon icon={faSpinner} className="animate-spin h-6 w-6 text-ink-3" />
+        <FontAwesomeIcon icon={faSpinner} className="spin h-6 w-6 text-ink-3" />
         <p className="tnum text-sm text-ink-2">Loading submission details…</p>
       </div>
     );
@@ -1151,6 +1175,7 @@ export default function IngestionWorkflow() {
       <StatusSplash
         tone="warning"
         icon={faSpinner}
+        spin
         eyebrow={`Submission #${job.id} · ${job.status}`}
         title="Processing document text & structure"
         description={
@@ -1158,7 +1183,7 @@ export default function IngestionWorkflow() {
         }
         actions={
           <Button variant="secondary" size="md" onClick={handleFetchLogs}>
-            View Processing Details
+            {showLogs ? "Hide processing details" : "View processing details"}
           </Button>
         }
       >
@@ -1178,7 +1203,9 @@ export default function IngestionWorkflow() {
         description={job.error_message || "Unable to extract content from the PDF file."}
         actions={
           <>
-            <Button variant="secondary" size="md" onClick={handleFetchLogs}>View Logs</Button>
+            <Button variant="secondary" size="md" onClick={handleFetchLogs}>
+              {showLogs ? "Hide logs" : "View logs"}
+            </Button>
             <Button as={Link} to="/admin/upload" variant="primary" size="md">Retry Upload</Button>
           </>
         }
@@ -1236,9 +1263,9 @@ export default function IngestionWorkflow() {
     "065", "066", "067", "068", "069", "070", "071", "072", "073", "074", "075", "076", "077", "078", "079", "080", "081", "082"
   ];
   const academicLevelChoices = choices?.academic_levels || [
-    { value: "UG", label: "UG" },
+    { value: "UG", label: "Undergraduate" },
     { value: "Masters", label: "Masters" },
-    { value: "PhD", label: "PhD" },
+    { value: "PhD", label: "Doctor of Philosophy" },
     { value: "Faculty", label: "Faculty" },
   ];
   const projectTypeChoices = choices?.project_types || [
@@ -1288,10 +1315,13 @@ export default function IngestionWorkflow() {
             </button>
           )}
           <Button variant="secondary" size="sm" onClick={handleFetchLogs}>
-            <FontAwesomeIcon icon={faClock} className="h-3.5 w-3.5" /> Logs
+            <FontAwesomeIcon icon={faClock} className="h-3.5 w-3.5" />
+            {showLogs ? "Hide logs" : "Logs"}
           </Button>
         </div>
       </div>
+
+      {logPanel}
 
       {/* Stepper — numbered index + label, the current step marked by a
           primary line beneath it and a recessed white ground. */}
@@ -1427,14 +1457,14 @@ export default function IngestionWorkflow() {
 
                 <div className="flex flex-col gap-2">
                   <label className={FIELD_LABEL}>
-                    Cluster <span className="text-err">*</span>
+                    Cluster <span className="font-normal text-ink-3">(optional)</span>
                   </label>
                   <select
                     value={projectFields.cluster}
                     onChange={(e) => setProjectFields({ ...projectFields, cluster: e.target.value })}
                     className={`${FIELD_INPUT} cursor-pointer`}
                   >
-                    <option value="">— Select cluster —</option>
+                    <option value="">Not specified</option>
                     {clusterChoices.map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}

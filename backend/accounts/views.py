@@ -15,8 +15,9 @@ from .serializers import (
 from .services import (
     GoogleService,
     GoogleAuthenticationError,
-    UserService,
+    ProfileConflict,
     ProfileService,
+    UserService,
 )
 from core.responses import success_response
 from notifications.services import NotificationService
@@ -24,7 +25,7 @@ from notifications.services import NotificationService
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, ValidationError
 
 from django.conf import settings
 
@@ -121,14 +122,20 @@ class CompleteProfileView(APIView):
         else:
             role = ProfileService.infer_role_from_email(user.email)
 
-        if role == UserRole.STUDENT:
-            serializer = StudentOnboardingSerializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            person = ProfileService.save_student_profile(user, serializer.validated_data)
-        else:
-            serializer = FacultyOnboardingSerializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            person = ProfileService.save_faculty_profile(user, serializer.validated_data)
+        try:
+            if role == UserRole.STUDENT:
+                serializer = StudentOnboardingSerializer(data=request.data)
+                serializer.is_valid(raise_exception=True)
+                person = ProfileService.save_student_profile(user, serializer.validated_data)
+            else:
+                serializer = FacultyOnboardingSerializer(data=request.data)
+                serializer.is_valid(raise_exception=True)
+                person = ProfileService.save_faculty_profile(user, serializer.validated_data)
+        except ProfileConflict as exc:
+            # A clash with an existing person is something the user can act
+            # on, so it is reported as such rather than surfacing as an
+            # opaque database error.
+            raise ValidationError({"detail": str(exc)}) from exc
 
         user.person = person
 

@@ -145,6 +145,20 @@
       animation-duration: 0.01ms !important;
       transition-duration: 0.01ms !important;
     }
+
+    /* A loading indicator is not decoration -- it is the only signal that
+       work is still happening. The blanket rule above froze every spinner
+       into a picture of a spinner, which reads as a hung page. These keep
+       moving, more slowly, which is what the reduced-motion preference
+       actually asks for. Class selectors outrank the `*` above, so these
+       win despite both being !important. */
+    .animate-spin,
+    .spin,
+    .indeterminate-bar,
+    .skeleton,
+    [data-motion="loading"] {
+      animation-duration: 1.6s !important;
+    }
   }
 
   body {
@@ -241,6 +255,19 @@
      utility) so the animation is guaranteed to run. */
   .indeterminate-bar {
     animation: indeterminate 1.1s ease-in-out infinite;
+  }
+
+  /* The one spinner class the app uses. Defined here with its own
+     keyframes rather than relying on the utility, so it cannot be turned
+     into a static picture by a reduced-motion rule or a missing utility
+     layer -- a frozen spinner reads as a hung page. */
+  .spin {
+    animation: app-spin 0.7s linear infinite;
+    transform-origin: 50% 50%;
+  }
+  @keyframes app-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
   }
   @keyframes indeterminate {
     0%   { transform: translateX(-100%); }

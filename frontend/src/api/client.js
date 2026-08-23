@@ -112,6 +112,12 @@ export const accessRequestsApi = {
             method: "POST",
             body: JSON.stringify({ reason: reason || "" }),
         }),
+    // Withdraw a request that has not been decided yet. The request and
+    // the reviewers' notifications about it are both removed.
+    cancel: (projectId) =>
+        request(`repository/projects/${projectId}/access-request/cancel/`, {
+            method: "DELETE",
+        }),
     mine: () => request("repository/access-requests/mine/", { method: "GET" }),
     queue: (params = {}) => {
         const qs = new URLSearchParams(
@@ -124,6 +130,14 @@ export const accessRequestsApi = {
             method: "POST",
             body: JSON.stringify({ note: note || "" }),
         }),
+};
+
+export const profileApi = {
+    // The narrow set of fields the account holder owns. Identity -- email,
+    // a roll number proven by that email, and the role -- is not editable
+    // here and is rejected or ignored by the server.
+    update: (data) =>
+        request("accounts/profile/", { method: "PATCH", body: JSON.stringify(data) }),
 };
 
 export const roleRequestsApi = {
@@ -154,7 +168,12 @@ export const projectAdminApi = {
 export const bookmarksApi = {
     // The signed-in user's saved projects. Scoped to the requesting user
     // by the backend; there is no way to read anyone else's.
-    list: () => request("repository/bookmarks/", {method: "GET"}),
+    list: (params = {}) => {
+        const qs = new URLSearchParams(
+            Object.entries(params).filter(([, v]) => v != null && v !== "")
+        ).toString();
+        return request(`repository/bookmarks/${qs ? `?${qs}` : ""}`, {method: "GET"});
+    },
     status: (projectId) => request(`repository/bookmarks/${projectId}/`, {method: "GET"}),
     add: (projectId) =>
         request("repository/bookmarks/", {method: "POST", body: JSON.stringify({project: projectId})}),

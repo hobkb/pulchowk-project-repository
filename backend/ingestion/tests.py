@@ -441,3 +441,99 @@ class JobPublishAPIViewTests(TestCase):
         self.assertEqual([section["heading"] for section in sections], ["Methodology", "Results"])
         self.assertEqual(sections[0]["content"], "Method body.")
         self.assertEqual(sections[1]["content"], "Results body.")
+
+
+class PublishSupervisorTitleTests(TestCase):
+    """
+    The review form sends the supervisor's name, title and designation as
+    three separate fields. Publishing must keep all three -- the honorific
+    used to be dropped because only a prefix parsed back out of the name
+    was honoured.
+    """
+
+    def _job(self, user, people, supervisors=None):
+        fields = {
+            "title": "Some Project",
+            "department_name": "Computer Engineering",
+            "campus_name": "Pulchowk Campus",
+        }
+        if supervisors is not None:
+            fields["supervisors"] = supervisors
+        return IngestionJob.objects.create(
+            file=SimpleUploadedFile("r.pdf", b"%PDF-1.4", content_type="application/pdf"),
+            original_filename="r.pdf",
+            uploaded_by=user,
+            status=IngestionJob.Status.EXTRACTED,
+            extracted_payload={"project_fields": fields, "people_and_roles": people},
+        )
+
+    def _publish(self, job, user):
+        client = APIClient()
+        client.force_authenticate(user=user)
+        return client.post(reverse("ingestion:job-publish", args=[job.id]))
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="pub-title@example.com", password="secret123", is_staff=True
+        )
+
+    def test_a_title_typed_into_the_form_is_stored(self):
+        job = self._job(self.user, [
+            {"full_name": "A Student", "role": "Author", "roll_number": "080BCT101"},
+            {
+            "full_name": "Rajiv Bhandari",
+            "role": "Supervisor",
+            "title": "Dr.",
+            "designation": "Assistant Professor",
+            },
+        ])
+        response = self._publish(job, self.user)
+        self.assertEqual(response.status_code, 200, response.data)
+
+        faculty = Faculty.objects.get(full_name="Rajiv Bhandari")
+        self.assertEqual(faculty.title, "Dr.")
+        self.assertEqual(faculty.designation, "Assistant Professor")
+
+    def test_a_typed_title_beats_one_parsed_from_the_name(self):
+        job = self._job(self.user, [
+            {"full_name": "A Student", "role": "Author", "roll_number": "080BCT102"},
+            {
+            "full_name": "Prof. Ram Thapa",
+            "role": "Supervisor",
+            "title": "Dr.",
+            "designation": "Professor",
+            },
+        ])
+        self._publish(job, self.user)
+        self.assertEqual(Faculty.objects.get(full_name="Ram Thapa").title, "Dr.")
+
+    def test_publishing_again_does_not_blank_an_existing_title(self):
+        """A second publish that carries no title must not erase one."""
+        Faculty.objects.create(
+            full_name="Sita Karki", title="Dr.", designation="Reader"
+        )
+        job = self._job(self.user, [
+            {"full_name": "A Student", "role": "Author", "roll_number": "080BCT103"},
+            {
+            "full_name": "Sita Karki",
+            "role": "Supervisor",
+            "designation": "Reader",
+            },
+        ])
+        self._publish(job, self.user)
+        self.assertEqual(Faculty.objects.get(full_name="Sita Karki").title, "Dr.")
+
+    def test_a_supervisor_supplied_only_in_project_fields_keeps_its_title(self):
+        job = self._job(
+            self.user,
+            [{"full_name": "Asha Rai", "role": "Author", "roll_number": "080BCT001"}],
+            supervisors=[{
+                "full_name": "Bikal Adhikari",
+                "title": "Dr.",
+                "designation": "Associate Professor",
+            }],
+        )
+        self._publish(job, self.user)
+        faculty = Faculty.objects.get(full_name="Bikal Adhikari")
+        self.assertEqual(faculty.title, "Dr.")
+        self.assertEqual(faculty.designation, "Associate Professor")

@@ -1,5 +1,5 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faEnvelope, faLock } from "@fortawesome/free-solid-svg-icons";
+import { faLock, faLockOpen } from "@fortawesome/free-solid-svg-icons";
 import { Button, Card, Status } from "./ui";
 
 /**
@@ -54,7 +54,7 @@ export function RestrictedReport({ onRequest, canRequest, status = "none" }) {
           <p className="text-item text-ink">Full report — restricted access</p>
           <p className="max-w-sm text-sm text-ink-2">
             {pending
-              ? "Your request has been sent to the department. You will get a notification when it is decided — reload this page, or use “Check for a decision” above, to open the report once approved."
+              ? "You will get a notification when this is decided."
               : declined
                 ? "Your previous request was declined. You can ask again with more detail."
                 : "The complete project report is confidential and is not published in the repository."}
@@ -64,15 +64,13 @@ export function RestrictedReport({ onRequest, canRequest, status = "none" }) {
 
       <div className="flex flex-wrap items-center justify-between gap-3 bg-band px-4 py-3">
         <p className="text-sm text-ink-2">
-          {pending
-            ? "Awaiting a decision from the departmental administrators."
-            : "Access can be requested from the departmental administrators."}
+          {pending ? "Awaiting a decision." : "Access is granted by the department."}
         </p>
         {pending ? (
           <Status tone="warn">Request pending</Status>
         ) : (
           <Button variant="primary" size="sm" onClick={onRequest} disabled={!canRequest}>
-            <FontAwesomeIcon icon={faEnvelope} className="h-3.5 w-3.5" aria-hidden="true" />
+            <FontAwesomeIcon icon={faLockOpen} className="h-3.5 w-3.5" aria-hidden="true" />
             {declined ? "Request again" : "Request access"}
           </Button>
         )}
