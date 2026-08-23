@@ -20,6 +20,7 @@ def get_published_project_queryset():
             "references",
             "assets",
         )
+        .order_by("-created_at", "-id")
     )
 
 

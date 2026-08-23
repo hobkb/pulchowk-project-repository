@@ -149,6 +149,7 @@ class ProjectListSerializer(serializers.ModelSerializer):
             "pdfUrl",
             "project_type",
             "academic_level",
+            "created_at",
         ]
 
     def get_people(self, obj, roles=None):
@@ -178,7 +179,6 @@ class ProjectListSerializer(serializers.ModelSerializer):
         supervisors = []
 
         for pp in people:
-            
             person = pp.person
             faculty = getattr(person, "faculty", None)
 
@@ -192,7 +192,13 @@ class ProjectListSerializer(serializers.ModelSerializer):
                 )
                 title = faculty.title or ""
 
-            parts = [designation, title, person.full_name]
+            full_name = person.full_name or ""
+            if title and (full_name.startswith(title) or f" {title}" in full_name):
+                title = ""
+            if designation and designation in full_name:
+                designation = ""
+
+            parts = [designation, title, full_name]
             supervisors.append(" ".join(part for part in parts if part).strip())
 
         return supervisors

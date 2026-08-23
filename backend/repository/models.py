@@ -50,6 +50,7 @@ class Project(models.Model):
 
     class Meta:
         db_table = "projects"
+        ordering = ["-created_at", "-id"]
 
     def __str__(self):
         return self.title[:50]
