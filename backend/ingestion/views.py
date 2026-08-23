@@ -420,8 +420,8 @@ class JobPublishAPIView(APIView):
         return student
 
     TITLE_TOKEN_RE = re.compile(
-        r'^(?P<title>(?:Prof(?:essor)?\.?|Dr\.?|Mr\.?|Mrs\.?|Ms\.?|Miss|Drs\.?|Engr\.?|Rev\.?|Hon\.?)'
-        r'(?:\s+(?:Prof(?:essor)?\.?|Dr\.?|Mr\.?|Mrs\.?|Ms\.?|Miss|Drs\.?|Engr\.?|Rev\.?|Hon\.?))*)\s+(?P<name>.+)$',
+        r'^(?P<title>(?:Prof(?:essor)?\.?|Dr\.?|Er\.?|Engr\.?|Mr\.?|Mrs\.?|Ms\.?|Miss|Drs\.?|Rev\.?|Hon\.?)'
+        r'(?:\s+(?:Prof(?:essor)?\.?|Dr\.?|Er\.?|Engr\.?|Mr\.?|Mrs\.?|Ms\.?|Miss|Drs\.?|Rev\.?|Hon\.?))*)\s+(?P<name>.+)$',
         re.IGNORECASE,
     )
 
@@ -452,16 +452,29 @@ class JobPublishAPIView(APIView):
         title="",
     ):
 
-        faculty, _ = Faculty.objects.update_or_create(
+        faculty = Faculty.objects.filter(
             full_name=full_name,
             department=department,
-            defaults={
-                "designation": designation,
-                "title": title,
-            },
-        )
+        ).first()
 
-        return faculty
+        if faculty is not None:
+            updated = False
+            if designation and not faculty.designation:
+                faculty.designation = designation
+                updated = True
+            if title and not faculty.title:
+                faculty.title = title
+                updated = True
+            if updated:
+                faculty.save()
+            return faculty
+
+        return Faculty.objects.create(
+            full_name=full_name,
+            department=department,
+            designation=designation,
+            title=title,
+        )
 
     @staticmethod
     def get_or_create_person(
