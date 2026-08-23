@@ -12,6 +12,7 @@ import {
   faArrowUpRightFromSquare,
   faChevronRight,
 } from "@fortawesome/free-solid-svg-icons";
+import { getDepartmentAcronym } from "../utils/departmentUtils";
 
 export default function ProjectDetails() {
   const { id } = useParams();
@@ -247,7 +248,7 @@ export default function ProjectDetails() {
                     className="bg-surface-raised border border-border-subtle hover:border-border-default rounded-md p-4 flex flex-col gap-2 hover:bg-surface-hover/30 transition-all duration-150 group"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-mono text-text-tertiary uppercase">{p.department}</span>
+                      <span className="text-[10px] font-mono font-semibold text-text-primary uppercase">{getDepartmentAcronym(p.department)}</span>
                       <span className="text-[10px] text-text-tertiary">•</span>
                       <span className="text-[10px] font-mono text-text-tertiary">{p.year}</span>
                     </div>
