@@ -1,438 +1,746 @@
-import { useState, useEffect } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
-import { projectsApi } from "../api/client";
-import { useAuth } from "../context/AuthContext";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  faEnvelope,
-  faShareNodes,
-  faDownload,
-  faXmark,
-  faFileLines,
   faArrowUpRightFromSquare,
-  faChevronRight,
+  faBookmark as faBookmarkSolid,
+  faCheck,
+  faEnvelope,
+  faLink,
+  faSpinner,
+  faTrash,
+  faPenToSquare,
 } from "@fortawesome/free-solid-svg-icons";
+import { faBookmark as faBookmarkOutline } from "@fortawesome/free-regular-svg-icons";
+import { accessRequestsApi, bookmarksApi, projectAdminApi, projectsApi } from "../api/client";
+import { useAuth } from "../context/AuthContext";
+import { isAdminUser } from "../lib/nav";
+import { RestrictedReport } from "../components/RestrictedReport";
+import {
+  Alert,
+  Breadcrumb,
+  Button,
+  Card,
+  CardHeader,
+  Container,
+  Crumb,
+  Dialog,
+  ErrorNotice,
+  Meta,
+  SectionHeading,
+  Status,
+  Term,
+  Textarea,
+  Input,
+  Select,
+} from "../components/ui";
+
+/**
+ * A single project record.
+ *
+ * What a normal reader sees is the public catalogue record: title,
+ * responsibility, classification, keywords and the abstract. The report's
+ * own sections (Introduction, Methodology, Results, …) are confidential
+ * and are neither rendered nor fetched — the API withholds them from
+ * unprivileged callers, so this page could not display them even if it
+ * tried. Reviewers additionally get the original PDF.
+ */
+
+/**
+ * Asking the department for the full report.
+ *
+ * This replaced a `mailto:` link. An email could only ever start a
+ * conversation; a request recorded here reaches every reviewer as a
+ * notification, and an approval actually unlocks the PDF for the person
+ * who asked — which is the thing they wanted.
+ */
+function ReportRequestDialog({ open, onClose, project, onSubmitted }) {
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function submit(event) {
+    event.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const body = await accessRequestsApi.request(project.id, reason);
+      onSubmitted?.(body?.data?.status || "PENDING");
+      onClose();
+    } catch (err) {
+      setError(err.message || "The request could not be sent.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Request the full report"
+      description="Your request goes to the departmental administrators. You will be notified here as soon as it is decided."
+      width="max-w-lg"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button type="submit" form="access-request-form" variant="primary" disabled={submitting}>
+            {submitting && (
+              <FontAwesomeIcon icon={faSpinner} className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            )}
+            {submitting ? "Sending…" : "Send request"}
+          </Button>
+        </>
+      }
+    >
+      <form id="access-request-form" onSubmit={submit} className="flex flex-col gap-3">
+        <Textarea
+          id="access-reason"
+          label="Why do you need this report? (optional)"
+          rows={4}
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          placeholder="For example: background reading for a related final-year project."
+          hint="A short reason helps the department decide faster."
+        />
+        {error && <ErrorNotice title="The request was not sent" detail={error} />}
+      </form>
+    </Dialog>
+  );
+}
+
+/**
+ * Reviewer-only editing of the catalogue record.
+ *
+ * Only the metadata a reviewer can reasonably correct after publication is
+ * here. The extracted report body is deliberately not editable from this
+ * page — correcting that belongs in the ingestion review workflow, where
+ * the source PDF sits alongside it.
+ */
+function EditProjectDialog({ open, onClose, project, onSaved }) {
+  const [form, setForm] = useState(null);
+  const [choices, setChoices] = useState({ clusters: [], departments: [] });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setError(null);
+    setForm({
+      title: project.title || "",
+      abstract: project.abstract || "",
+      academic_level: project.academic_level || "",
+      project_type: project.project_type || "",
+      batch: project.batch || "",
+      cluster: project.cluster || "",
+      department_name: project.department || "",
+      keywords: (project.keywords || []).join(", "),
+    });
+    projectsApi
+      .facets()
+      .then((body) =>
+        setChoices({
+          clusters: body?.data?.cluster_choices || [],
+          departments: body?.data?.department_choices || [],
+        })
+      )
+      .catch(() => setChoices({ clusters: [], departments: [] }));
+  }, [open, project]);
+
+  async function save(event) {
+    event.preventDefault();
+    if (saving || !form) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const body = await projectAdminApi.update(project.id, {
+        ...form,
+        keywords: form.keywords
+          .split(",")
+          .map((k) => k.trim())
+          .filter(Boolean),
+      });
+      onSaved?.(body.data);
+      onClose();
+    } catch (err) {
+      setError(err.message || "The project could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const set = (field) => (event) => setForm((f) => ({ ...f, [field]: event.target.value }));
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Edit project record"
+      description="Changes apply to the public catalogue entry immediately."
+      width="max-w-2xl"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="submit" form="edit-project-form" variant="primary" disabled={saving}>
+            {saving && (
+              <FontAwesomeIcon icon={faSpinner} className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            )}
+            {saving ? "Saving…" : "Save changes"}
+          </Button>
+        </>
+      }
+    >
+      {form && (
+        <form id="edit-project-form" onSubmit={save} className="flex flex-col gap-4">
+          <Input id="edit-title" label="Title" value={form.title} onChange={set("title")} required />
+          <Textarea
+            id="edit-abstract"
+            label="Abstract"
+            rows={6}
+            value={form.abstract}
+            onChange={set("abstract")}
+          />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Select
+              id="edit-department"
+              label="Department"
+              value={form.department_name}
+              onChange={set("department_name")}
+            >
+              <option value="">— None —</option>
+              {choices.departments.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </Select>
+            <Select id="edit-cluster" label="Cluster" value={form.cluster} onChange={set("cluster")}>
+              <option value="">— None —</option>
+              {choices.clusters.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </Select>
+            <Select
+              id="edit-level"
+              label="Academic level"
+              value={form.academic_level}
+              onChange={set("academic_level")}
+            >
+              {["UG", "Masters", "PhD", "Faculty"].map((v) => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </Select>
+            <Select
+              id="edit-type"
+              label="Project type"
+              value={form.project_type}
+              onChange={set("project_type")}
+            >
+              {["Major", "Minor", "Thesis", "Faculty Project", "Research"].map((v) => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </Select>
+            <Input id="edit-batch" label="Batch" value={form.batch} onChange={set("batch")} />
+          </div>
+          <Input
+            id="edit-keywords"
+            label="Keywords"
+            value={form.keywords}
+            onChange={set("keywords")}
+            hint="Comma separated."
+          />
+          {error && <ErrorNotice title="The project was not saved" detail={error} />}
+        </form>
+      )}
+    </Dialog>
+  );
+}
+
+/** Reviewer-only removal of a catalogue record. */
+function DeleteProjectDialog({ open, onClose, project }) {
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState(null);
+  const navigate = useNavigate();
+
+  async function remove() {
+    if (deleting) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await projectAdminApi.remove(project.id);
+      navigate("/projects", { replace: true });
+    } catch (err) {
+      setError(err.message || "The project could not be deleted.");
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Delete this project?"
+      description="It will be removed from the public catalogue."
+      width="max-w-lg"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={remove} disabled={deleting}>
+            {deleting && (
+              <FontAwesomeIcon icon={faSpinner} className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            )}
+            {deleting ? "Deleting…" : "Delete project"}
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm text-ink">
+        <span className="font-semibold">{project.title}</span> and its sections, keywords and
+        access requests will be removed.
+      </p>
+      <p className="mt-3 text-sm text-ink-2">
+        The original deposit and its PDF are kept, so this record can be published again from
+        the ingestion queue if this was a mistake.
+      </p>
+      {error && <ErrorNotice title="The project was not deleted" detail={error} className="mt-4" />}
+    </Dialog>
+  );
+}
 
 export default function ProjectDetails() {
   const { id } = useParams();
-  const navigate = useNavigate();
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const { user, status: authStatus } = useAuth();
+  const isReviewer = isAdminUser(user);
+  const signedIn = authStatus === "authenticated";
 
   const [project, setProject] = useState(null);
+  const [related, setRelated] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [similarProjects, setSimilarProjects] = useState([]);
-  const [loadingSimilar, setLoadingSimilar] = useState(true);
-  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  const [copiedShare, setCopiedShare] = useState(false);
+  const [error, setError] = useState(null);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [rechecking, setRechecking] = useState(false);
+  const [justGranted, setJustGranted] = useState(false);
+  const [savePending, setSavePending] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    setLoadingSimilar(true);
+    setError(null);
+    setProject(null);
 
     projectsApi
       .detail(id)
-      .then((res) => {
+      .then((body) => {
         if (cancelled) return;
-        const proj = res.data;
-        if (!proj) {
-          navigate("/dashboard");
-          return;
-        }
-        setProject(proj);
-
-        return projectsApi.list().then((listRes) => {
-          if (cancelled) return;
-          const filtered = (listRes.data || [])
-            .filter((p) => p.id !== proj.id)
-            .slice(0, 2);
-          setSimilarProjects(filtered);
-        });
+        const found = body.data;
+        setProject(found);
+        return projectsApi
+          .list({ department: found.department })
+          .then((listBody) => {
+            if (cancelled) return;
+            setRelated((listBody.data || []).filter((p) => p.id !== found.id).slice(0, 5));
+          })
+          .catch(() => {
+            if (!cancelled) setRelated([]);
+          });
       })
-      .catch(() => {
-        if (!cancelled) navigate("/dashboard");
+      .catch((err) => {
+        if (!cancelled) setError(err.message);
       })
       .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-          setLoadingSimilar(false);
-        }
+        if (!cancelled) setLoading(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [id, navigate]);
+  }, [id]);
+
+  useEffect(() => {
+    if (!signedIn) return undefined;
+    let cancelled = false;
+    bookmarksApi
+      .status(id)
+      .then((body) => {
+        if (!cancelled) setSaved(Boolean(body?.data?.bookmarked));
+      })
+      .catch(() => {
+        if (!cancelled) setSaved(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, signedIn]);
+
+  async function toggleSaved() {
+    setSavePending(true);
+    const next = !saved;
+    setSaved(next);
+    try {
+      if (next) await bookmarksApi.add(id);
+      else await bookmarksApi.remove(id);
+    } catch {
+      setSaved(!next);
+    } finally {
+      setSavePending(false);
+    }
+  }
+
+  /** Re-reads the record so a decision made while this page was open is
+   *  picked up without the reader having to reload the browser. */
+  async function recheckAccess() {
+    if (rechecking) return;
+    setRechecking(true);
+    try {
+      const body = await projectsApi.detail(id);
+      const wasGranted = body.data?.accessStatus === "granted";
+      setProject(body.data);
+      setJustGranted(wasGranted);
+    } catch {
+      // Leave the page as it is; the reader can try again.
+    } finally {
+      setRechecking(false);
+    }
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   if (loading) {
     return (
-      <div className="flex flex-col gap-6 animate-pulse">
-        <div className="h-4 bg-border-default/50 rounded w-1/3"></div>
-        <div className="h-10 bg-border-default/40 rounded w-2/3"></div>
-        <div className="h-40 bg-border-default/30 rounded-md"></div>
-        <div className="h-64 bg-border-default/30 rounded-md"></div>
-      </div>
+      <Container width="wide" className="px-5 sm:px-8 py-10">
+        <div className="skeleton h-8 w-3/4 rounded-sm" />
+        <div className="skeleton mt-3 h-4 w-1/2 rounded-sm" />
+        <div className="skeleton mt-8 h-40 rounded-md" />
+      </Container>
     );
   }
 
-  if (!project) return null;
+  if (error || !project) {
+    return (
+      <Container width="reading" className="px-5 sm:px-8 py-10">
+        <ErrorNotice
+          title="This project could not be opened"
+          detail={error || "No record was returned for this identifier."}
+          action={
+            <Button as={Link} to="/projects" variant="secondary" size="sm">
+              Back to projects
+            </Button>
+          }
+        />
+      </Container>
+    );
+  }
 
-  const handleShare = () => {
-    navigator.clipboard.writeText(window.location.href);
-    setCopiedShare(true);
-    setTimeout(() => setCopiedShare(false), 2000);
-  };
-
-  // Generate mailto link
-  const validAuthorsWithEmails = (project.authors || []).filter(a => a.email);
-  const mailtoEmails = validAuthorsWithEmails.map(a => a.email).join(",");
-  const mailtoSubject = encodeURIComponent(`[Pulchowk Repository] Request for Project Report: ${project.title}`);
-  const mailtoBody = encodeURIComponent(
-    `Dear Authors,\n\nI am interested in your project titled "${project.title}" and would like to request a copy of the final project report PDF for academic reference.\n\nThank you!\n\nName:\nDepartment:\nRoll Number:`
-  );
-  const mailtoLink = `mailto:${mailtoEmails}?subject=${mailtoSubject}&body=${mailtoBody}`;
-
-  const isVerified = project.status === "Published";
+  const authors = project.authors || [];
+  const supervisors = (project.supervisors || []).filter(Boolean);
+  const keywords = (project.keywords || project.technologies || []).filter(Boolean);
+  // "granted" for a reviewer or an approved requester; otherwise the
+  // state of this reader's own request.
+  const accessStatus = project.accessStatus || "none";
+  const hasReport = Boolean(project.pdfUrl);
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Breadcrumb Navigation per Chapter 17.1 */}
-      <nav className="flex items-center gap-1.5 text-xs text-text-tertiary">
-        <Link to="/dashboard" className="hover:text-text-secondary transition-colors">
-          Browse Projects
-        </Link>
-        <FontAwesomeIcon icon={faChevronRight} className="h-3.5 w-3.5 text-text-tertiary/60" />
-        <span className="font-mono">{project.department}</span>
-        <FontAwesomeIcon icon={faChevronRight} className="h-3.5 w-3.5 text-text-tertiary/60" />
-        <span className="text-text-secondary truncate max-w-[200px] sm:max-w-xs">{project.title}</span>
-      </nav>
+    <>
+      <Breadcrumb>
+        <Crumb>
+          <Link to="/dashboard">Home</Link>
+        </Crumb>
+        <Crumb>
+          <Link to="/projects">Projects</Link>
+        </Crumb>
+        <Crumb last>{project.title}</Crumb>
+      </Breadcrumb>
 
-      {/* Main Grid Layout: left 2 columns, right 1 column */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Side: Title, Info, Abstract, Preview, Similar Projects */}
-        <div className="lg:col-span-2 flex flex-col gap-6">
-          {/* Header Title Section */}
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-center gap-2">
-              {(project.year || project.batch) && (
-                <span className="bg-surface-raised border border-border-default px-2 py-0.5 rounded-sm text-xs font-mono text-text-secondary">
-                  Batch {project.year || project.batch}
-                </span>
+      <Container width="wide" className="px-5 sm:px-8 py-8">
+        {justGranted && (
+          <Alert tone="ok" title="Access approved" className="mb-6">
+            Your request was approved — the full report is now available below.
+          </Alert>
+        )}
+
+        <div className="grid grid-cols-1 gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_18rem] items-start">
+          <div className="min-w-0">
+            <h1 className="text-hero">{project.title}</h1>
+
+            <div className="mt-3 space-y-1">
+              {authors.length > 0 && (
+                <p className="text-base text-ink-2">
+                  <span className="text-ink-3">Authors: </span>
+                  {authors.map((author, index) => (
+                    <span key={`${author.name}-${index}`}>
+                      <span className="text-ink">{author.name}</span>
+                      {author.rollNumber && (
+                        <span className="text-ink-3 tnum"> ({author.rollNumber})</span>
+                      )}
+                      {index < authors.length - 1 ? "; " : ""}
+                    </span>
+                  ))}
+                </p>
               )}
-              <span className={`border px-2 py-0.5 rounded-sm text-xs font-mono capitalize ${
-                isVerified
-                  ? "bg-success-emerald/10 border-success-emerald/20 text-success-emerald"
-                  : "bg-warning-amber/10 border-warning-amber/20 text-warning-amber"
-              }`}>
-                {isVerified ? "Verified" : project.status}
-              </span>
+              <p className="text-base text-ink-2">
+                <span className="text-ink-3">
+                  {supervisors.length > 1 ? "Supervisors: " : "Supervisor: "}
+                </span>
+                {supervisors.length > 0 ? (
+                  <span className="text-ink">{supervisors.join("; ")}</span>
+                ) : (
+                  <span className="italic text-ink-3">Not available</span>
+                )}
+              </p>
             </div>
 
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-text-primary leading-tight">
-              {project.title}
-            </h1>
-
-            {/* Author list under title */}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-text-secondary">
-              <div className="flex items-center gap-1">
-                <span className="font-semibold text-text-primary">Authors:</span>
-                {(project.authors || []).map((a, idx) => (
-                  <span key={`${a.name}-${idx}`}>
-                    {a.name}
-                    {a.rollNumber ? (
-                      <span className="font-mono text-text-tertiary text-[10px]"> ({a.rollNumber})</span>
-                    ) : null}
-                    {idx < project.authors.length - 1 ? ", " : ""}
-                  </span>
-                ))}
-              </div>
-              {project.supervisor && (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              {accessStatus === "granted" && hasReport ? (
+                <Button
+                  as="a"
+                  href={project.pdfUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  variant="primary"
+                  size="sm"
+                >
+                  <FontAwesomeIcon
+                    icon={faArrowUpRightFromSquare}
+                    className="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  />
+                  Open full report
+                </Button>
+              ) : accessStatus === "pending" ? (
                 <>
-                  <div>•</div>
-                  <div>
-                    <span className="font-semibold text-text-primary">Supervisor:</span> {project.supervisor}
-                  </div>
+                  <Status tone="warn">Access requested — awaiting a decision</Status>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={recheckAccess}
+                    disabled={rechecking}
+                  >
+                    {rechecking && (
+                      <FontAwesomeIcon
+                        icon={faSpinner}
+                        className="h-3.5 w-3.5 animate-spin"
+                        aria-hidden="true"
+                      />
+                    )}
+                    {rechecking ? "Checking…" : "Check for a decision"}
+                  </Button>
+                </>
+              ) : (
+                <Button variant="primary" size="sm" onClick={() => setRequestOpen(true)}>
+                  <FontAwesomeIcon icon={faEnvelope} className="h-3.5 w-3.5" aria-hidden="true" />
+                  {accessStatus === "declined" ? "Request again" : "Request report"}
+                </Button>
+              )}
+
+              {isReviewer && (
+                <>
+                  <Button variant="secondary" size="sm" onClick={() => setManageOpen(true)}>
+                    <FontAwesomeIcon icon={faPenToSquare} className="h-3.5 w-3.5" aria-hidden="true" />
+                    Edit
+                  </Button>
+                  <Button variant="danger" size="sm" onClick={() => setDeleteOpen(true)}>
+                    <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" aria-hidden="true" />
+                    Delete
+                  </Button>
                 </>
               )}
-            </div>
-          </div>
-
-          {/* Abstract Block */}
-          <div className="bg-surface-raised border border-border-subtle rounded-md p-6 flex flex-col gap-4">
-            <h2 className="text-sm font-semibold text-text-primary uppercase tracking-wider">Abstract</h2>
-            <p className="text-sm text-text-secondary leading-relaxed max-w-prose">
-              {project.abstract}
-            </p>
-          </div>
-
-          {/* PDF Viewer Area - Gated by Role per Chapter 17.5 */}
-          <div className="bg-surface-raised border border-border-subtle rounded-md overflow-hidden flex flex-col">
-            <div className="border-b border-border-subtle px-6 py-4 flex items-center justify-between bg-surface-raised/60">
-              <div className="flex items-center gap-2">
-                <FontAwesomeIcon icon={faFileLines} className="h-4 w-4 text-accent-primary" />
-                <span className="text-xs font-semibold text-text-primary uppercase tracking-wider">Project Document Preview</span>
-              </div>
-              <span className="text-[10px] font-mono text-text-tertiary">
-                {isAdmin ? "Admin PDF Access" : "Secure Metadata View"}
-              </span>
-            </div>
-
-            {isAdmin && project.pdfUrl ? (
-              /* Full interactive PDF viewer strictly for Admins */
-              <div className="aspect-[4/5] sm:aspect-[16/10] bg-surface-sunken w-full relative">
-                <iframe
-                  src={`${project.pdfUrl}#toolbar=1`}
-                  className="w-full h-full border-0"
-                  title="Project Document"
+              {signedIn && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={toggleSaved}
+                  disabled={savePending}
+                  aria-pressed={saved}
+                >
+                  <FontAwesomeIcon
+                    icon={saved ? faBookmarkSolid : faBookmarkOutline}
+                    className="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  />
+                  {saved ? "Saved" : "Save"}
+                </Button>
+              )}
+              <Button variant="secondary" size="sm" onClick={copyLink}>
+                <FontAwesomeIcon
+                  icon={copied ? faCheck : faLink}
+                  className="h-3.5 w-3.5"
+                  aria-hidden="true"
                 />
-              </div>
-            ) : (
-              /* Static cover preview only for general users, no PDF extraction */
-              <div className="flex flex-col md:flex-row items-center justify-center p-8 bg-surface-sunken gap-8 border-t border-border-subtle">
-                <div className="w-44 h-56 bg-surface-raised border border-border-default rounded-sm overflow-hidden shadow-md flex-shrink-0 relative group select-none">
-                  {project.coverImage ? (
-                    <img src={project.coverImage} alt="Cover Preview" className="w-full h-full object-cover opacity-80" />
-                  ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center bg-surface-sunken p-4 text-center">
-                      <FontAwesomeIcon icon={faFileLines} className="h-10 w-10 text-text-tertiary mb-2" />
-                      <span className="text-[10px] font-mono text-text-tertiary uppercase">No Preview</span>
-                    </div>
-                  )}
-                  <div className="absolute inset-0 bg-surface-canvas/40 backdrop-blur-[1px] flex items-center justify-center">
-                    <span className="bg-surface-canvas/90 text-text-secondary text-[9px] font-mono uppercase tracking-wider px-2 py-1 border border-border-subtle rounded-sm">
-                      First Page Preview
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-4 max-w-sm text-center md:text-left">
-                  <h3 className="text-sm font-semibold text-text-primary">Looking for the full report?</h3>
-                  <p className="text-xs text-text-secondary leading-relaxed">
-                    General user access is restricted to title details and abstracts. If you need the full PDF for academic use, you can send an email request directly to the authors.
-                  </p>
-                  <div>
-                    <button
-                      onClick={() => setIsReportModalOpen(true)}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-accent-primary text-text-inverse hover:bg-accent-primary-hover text-xs font-semibold rounded-sm transition-colors cursor-pointer"
-                    >
-                      <FontAwesomeIcon icon={faEnvelope} className="h-3.5 w-3.5" /> Request Full Report
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Similar Projects Rail per Chapter 17.6 */}
-          <div className="flex flex-col gap-4">
-            <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider">Similar Projects</h3>
-            {loadingSimilar ? (
-              /* Loading Skeletons */
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {[1, 2].map((i) => (
-                  <div key={i} className="bg-surface-raised border border-border-subtle rounded-md p-4 h-32 animate-pulse flex flex-col gap-3">
-                    <div className="h-2 bg-border-default rounded w-1/4"></div>
-                    <div className="h-4 bg-border-default rounded w-3/4"></div>
-                    <div className="h-3 bg-border-default rounded w-1/2 mt-auto"></div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {similarProjects.map((p) => (
-                  <Link
-                    key={p.id}
-                    to={`/projects/${p.id}`}
-                    className="bg-surface-raised border border-border-subtle hover:border-border-default rounded-md p-4 flex flex-col gap-2 hover:bg-surface-hover/30 transition-all duration-150 group"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-mono text-text-tertiary uppercase">{p.department}</span>
-                      <span className="text-[10px] text-text-tertiary">•</span>
-                      <span className="text-[10px] font-mono text-text-tertiary">{p.year}</span>
-                    </div>
-                    <h4 className="text-xs font-semibold text-text-primary line-clamp-2 leading-snug group-hover:text-accent-primary transition-colors">
-                      {p.title}
-                    </h4>
-                    <div className="text-[10px] text-text-secondary mt-auto">
-                      Supervisor: {p.supervisor || "—"}
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right Side: Quick Actions Panel & Metadata Detail Table */}
-        <div className="flex flex-col gap-6">
-          {/* Actions Card */}
-          <div className="bg-surface-raised border border-border-subtle rounded-md p-6 flex flex-col gap-4">
-            <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider">Actions</h3>
-
-            <div className="flex flex-col gap-2">
-              {!isAdmin && (
-                <button
-                  onClick={() => setIsReportModalOpen(true)}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-accent-primary text-text-inverse hover:bg-accent-primary-hover text-xs font-semibold rounded-sm transition-colors cursor-pointer"
-                >
-                  <FontAwesomeIcon icon={faEnvelope} className="h-4 w-4" /> Request Report
-                </button>
-              )}
-
-              {isAdmin && project.pdfUrl && (
-                <a
-                  href={project.pdfUrl}
-                  download
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-accent-primary text-text-inverse hover:bg-accent-primary-hover text-xs font-semibold rounded-sm transition-colors text-center cursor-pointer"
-                >
-                  <FontAwesomeIcon icon={faDownload} className="h-4 w-4" /> Download PDF
-                </a>
-              )}
-
-              <button
-                onClick={handleShare}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-surface-sunken hover:bg-surface-hover border border-border-default hover:border-border-strong text-text-primary text-xs font-semibold rounded-sm transition-all cursor-pointer"
-              >
-                <FontAwesomeIcon icon={faShareNodes} className="h-4 w-4" />
-                {copiedShare ? "URL Copied!" : "Share Link"}
-              </button>
+                {copied ? "Link copied" : "Copy link"}
+              </Button>
             </div>
+
+            {project.abstract && (
+              <section className="mt-9">
+                <SectionHeading title="Abstract" />
+                <p className="whitespace-pre-line text-base text-ink measure">{project.abstract}</p>
+              </section>
+            )}
+
+            <section className="mt-9">
+              <SectionHeading title="Full report" />
+              {accessStatus === "granted" && hasReport ? (
+                <Card className="overflow-hidden">
+                  <CardHeader
+                    title="Original report (PDF)"
+                    actions={
+                      <>
+                        <Status tone="ok">
+                          {isReviewer ? "Reviewer access" : "Access granted"}
+                        </Status>
+                        <Button
+                          as="a"
+                          href={project.pdfUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          variant="secondary"
+                          size="sm"
+                        >
+                          <FontAwesomeIcon
+                            icon={faArrowUpRightFromSquare}
+                            className="h-3 w-3"
+                            aria-hidden="true"
+                          />
+                          Open
+                        </Button>
+                      </>
+                    }
+                  />
+                  <iframe
+                    src={`${project.pdfUrl}#toolbar=1`}
+                    title={`Report: ${project.title}`}
+                    className="h-[70vh] min-h-[420px] w-full border-0 bg-band"
+                  />
+                </Card>
+              ) : (
+                <RestrictedReport
+                  onRequest={() => setRequestOpen(true)}
+                  canRequest={accessStatus !== "pending"}
+                  status={accessStatus}
+                />
+              )}
+            </section>
+
+            {related.length > 0 && (
+              <section className="mt-9">
+                <SectionHeading
+                  title="Other projects from this department"
+                  actions={
+                    <Link to={`/projects?department=${encodeURIComponent(project.department)}`}>
+                      View all
+                    </Link>
+                  }
+                />
+                <ul className="divide-y divide-line border-t border-line">
+                  {related.map((item) => (
+                    <li key={item.id} className="py-3">
+                      <Link to={`/projects/${item.id}`} className="text-sm font-semibold">
+                        {item.title}
+                      </Link>
+                      <p className="mt-0.5 text-xs text-ink-3">
+                        {[item.academic_level, item.batch && `Batch ${item.batch}`]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </div>
 
-          {/* Metadata Card Table */}
-          <div className="bg-surface-raised border border-border-subtle rounded-md p-6 flex flex-col gap-4">
-            <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider">Metadata Details</h3>
-
-            <div className="divide-y divide-border-subtle text-xs">
-              <div className="py-2.5 flex justify-between gap-3">
-                <span className="text-text-secondary shrink-0">Department</span>
-                <span className="font-mono text-text-primary text-right break-words">{project.department}</span>
-              </div>
-              <div className="py-2.5 flex flex-col gap-1.5">
-                <span className="text-text-secondary">Keywords</span>
-                {(project.technologies || []).length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5 mt-0.5">
-                    {(project.technologies || []).map((t) => (
-                      <span
-                        key={t}
-                        className="bg-surface-sunken border border-border-default px-2 py-0.5 rounded-sm text-[10px] font-mono text-text-secondary"
-                      >
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="text-text-tertiary italic">No keywords indexed</span>
+          {/* Catalogue details — a plain definition list in the margin. */}
+          <aside className="min-w-0">
+            <Card>
+              <CardHeader title="Project details" />
+              <dl className="divide-y divide-line px-4">
+                {project.department && <Meta label="Department">{project.department}</Meta>}
+                {project.academic_level && <Meta label="Academic level">{project.academic_level}</Meta>}
+                {project.project_type && <Meta label="Project type">{project.project_type}</Meta>}
+                {(project.batch || project.year) && (
+                  <Meta label="Batch">
+                    <span className="tnum">{project.batch || project.year}</span>
+                  </Meta>
                 )}
-              </div>
-              <div className="py-2.5 flex justify-between">
-                <span className="text-text-secondary">Batch</span>
-                <span className="font-mono text-text-primary">{project.batch || "—"}</span>
-              </div>
-              {(project.supervisors || []).length > 0 && (
-                <div className="py-2.5 flex flex-col gap-1.5">
-                  <span className="text-text-secondary">Supervisors</span>
-                  <div className="flex flex-col gap-1 font-mono text-[11px] text-text-primary mt-0.5">
-                    {(project.supervisors || []).map((s) => (
-                      <span key={s}>{s}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div className="py-2.5 flex flex-col gap-1.5">
-                <span className="text-text-secondary">Authors</span>
-                <div className="flex flex-col gap-1 font-mono text-[11px] text-text-primary mt-0.5">
-                  {(project.authors || []).map((a) => (
-                    <div key={`${a.name}-${a.email}`} className="flex justify-between items-center bg-surface-sunken/40 px-2 py-1 border border-border-subtle/50 rounded-sm">
-                      <span>{a.name}</span>
-                      <span className="text-text-secondary">{a.rollNumber || "—"}</span>
-                    </div>
+                {project.cluster && <Meta label="Research area">{project.cluster}</Meta>}
+                {project.language && <Meta label="Language">{project.language}</Meta>}
+                <Meta label="Record status">
+                  <Status tone="ok">Verified</Status>
+                </Meta>
+              </dl>
+            </Card>
+
+            {keywords.length > 0 && (
+              <div className="mt-5">
+                <h2 className="mb-2 text-sm font-semibold text-ink">Keywords</h2>
+                <div className="flex flex-wrap gap-1.5">
+                  {keywords.map((keyword) => (
+                    <Term
+                      key={keyword}
+                      as={Link}
+                      to={`/projects?q=${encodeURIComponent(keyword)}`}
+                      className="no-underline hover:no-underline"
+                    >
+                      {keyword}
+                    </Term>
                   ))}
                 </div>
               </div>
-            </div>
-          </div>
+            )}
+
+            <Alert tone="neutral" className="mt-5">
+              Project reports are held confidentially by the department. Only the catalogue
+              record and abstract are published.
+            </Alert>
+          </aside>
         </div>
-      </div>
+      </Container>
 
-      {/* Request Report Modal Dialog per Chapter 17.5 */}
-      {isReportModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-surface-canvas/80 backdrop-blur-sm p-4">
-          <div
-            className="bg-surface-raised border border-border-strong rounded-md w-full max-w-lg shadow-2xl relative overflow-hidden flex flex-col animate-fade-in"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="absolute top-0 left-0 right-0 h-[2px] bg-accent-primary"></div>
+      <ReportRequestDialog
+        open={requestOpen}
+        onClose={() => setRequestOpen(false)}
+        project={project}
+        onSubmitted={(status) =>
+          setProject((current) =>
+            current
+              ? { ...current, accessStatus: status === "APPROVED" ? "granted" : "pending" }
+              : current
+          )
+        }
+      />
 
-            {/* Modal Header */}
-            <div className="border-b border-border-subtle px-6 py-4 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider">Request Report Access</h3>
-              <button
-                onClick={() => setIsReportModalOpen(false)}
-                className="text-text-secondary hover:text-text-primary p-1 rounded-md hover:bg-surface-hover transition-colors cursor-pointer"
-              >
-                <FontAwesomeIcon icon={faXmark} className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="p-6 flex flex-col gap-4 text-xs sm:text-sm">
-              <p className="text-text-secondary leading-relaxed">
-                Contact the authors of this project directly. You can copy their email addresses below or click the button to draft a pre-formatted request mail directly in your default mail client.
-              </p>
-
-              {/* Author Emails List */}
-              <div className="flex flex-col gap-2.5">
-                {(project.authors || []).map((a) => (
-                  <div key={`${a.name}-${a.email}`} className="flex flex-col sm:flex-row sm:items-center justify-between bg-surface-sunken border border-border-default rounded p-3 gap-2">
-                    <div>
-                      <p className="font-semibold text-text-primary text-xs">{a.name}</p>
-                      <p className="font-mono text-text-tertiary text-[10px] mt-0.5">{a.rollNumber || ""}</p>
-                    </div>
-                    {a.email ? (
-                      <a
-                        href={`mailto:${a.email}`}
-                        className="text-xs font-mono text-accent-primary hover:underline flex items-center gap-1"
-                      >
-                        {a.email} <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3 w-3" />
-                      </a>
-                    ) : (
-                      <span className="text-[10px] text-text-tertiary font-mono italic">No email registered</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Modal Footer / Composer Action */}
-            <div className="border-t border-border-subtle px-6 py-4 bg-surface-sunken/45 flex flex-col sm:flex-row sm:items-center justify-end gap-3">
-              <button
-                onClick={() => setIsReportModalOpen(false)}
-                className="px-4 py-2 bg-surface-raised border border-border-default hover:border-border-strong text-text-primary text-xs font-semibold rounded-sm transition-all cursor-pointer text-center"
-              >
-                Cancel
-              </button>
-              {mailtoEmails.length > 0 ? (
-                <a
-                  href={mailtoLink}
-                  onClick={() => setIsReportModalOpen(false)}
-                  className="px-4 py-2 bg-accent-primary text-text-inverse hover:bg-accent-primary-hover text-xs font-semibold rounded-sm transition-colors inline-flex items-center justify-center gap-2 text-center cursor-pointer"
-                >
-                  <FontAwesomeIcon icon={faEnvelope} className="h-4 w-4" /> Compose Request Email
-                </a>
-              ) : (
-                <button
-                  disabled
-                  className="px-4 py-2 bg-surface-hover text-text-tertiary text-xs font-semibold rounded-sm cursor-not-allowed border border-border-subtle"
-                >
-                  Request Disabled (No Emails)
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+      {isReviewer && (
+        <>
+          <EditProjectDialog
+            open={manageOpen}
+            onClose={() => setManageOpen(false)}
+            project={project}
+            onSaved={(updated) => setProject(updated)}
+          />
+          <DeleteProjectDialog
+            open={deleteOpen}
+            onClose={() => setDeleteOpen(false)}
+            project={project}
+          />
+        </>
       )}
-    </div>
+    </>
   );
 }

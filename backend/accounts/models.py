@@ -1,4 +1,5 @@
 import uuid
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from .managers import UserManager
@@ -120,3 +121,54 @@ class External(Person):
         max_length=100,
         blank=True
     )
+
+
+class RoleElevationRequest(models.Model):
+    """
+    A request to hold a privileged role (faculty or admin).
+
+    Onboarding must not grant these on the applicant's own say-so: both
+    carry `is_staff`, which makes someone a reviewer -- able to publish,
+    delete projects and decide report-access requests -- and admin also
+    carries `is_superuser`. So the role is asked for here and granted only
+    when an existing administrator approves it.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        APPROVED = "APPROVED", "Approved"
+        DECLINED = "DECLINED", "Declined"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="role_requests",
+    )
+    requested_role = models.CharField(max_length=20, choices=UserRole.choices)
+    reason = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING, db_index=True
+    )
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="decided_role_requests",
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "role_elevation_requests"
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(status="PENDING"),
+                name="unique_pending_role_request",
+            )
+        ]
+
+    def __str__(self):
+        return f"RoleElevationRequest({self.user_id} -> {self.requested_role}, {self.status})"

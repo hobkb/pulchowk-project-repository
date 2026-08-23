@@ -1,9 +1,10 @@
-from django.db.models import Q
+from django.db.models import Count, Q
 from rest_framework import permissions
 from rest_framework.exceptions import NotFound
 from rest_framework.views import APIView
 
 from core.responses import success_response
+from organization.departments import CANONICAL_DEPARTMENTS
 from repository.models import Project
 from repository.serializers import ProjectDetailSerializer, ProjectListSerializer
 
@@ -23,32 +24,112 @@ def get_published_project_queryset():
     )
 
 
+# The roles that count as supervising a project, shared by the supervisor
+# filter and the supervisor facet.
+SUPERVISORY_ROLES = ("Supervisor", "Co-Supervisor")
+
+# Every field a free-text query is matched against. Ordinary case-insensitive
+# substring matching over real stored columns -- there is no ranking model,
+# no embedding, and no semantic component here, so nothing in the UI should
+# describe it as anything other than keyword search.
+SEARCH_FIELDS = (
+    "title",
+    "abstract",
+    "batch",
+    "department__name",
+    "project_people__person__full_name",
+    "project_keywords__keyword__name",
+    "project_domains__domain__name",
+)
+
+
+def apply_search(queryset, query):
+    """Filters `queryset` by a free-text keyword query.
+
+    The query is split into whitespace-separated terms and every term must
+    match at least one searchable field (AND across terms, OR across
+    fields). A single combined `icontains` over the whole string -- what
+    this replaced -- meant "solar tracker" only matched records containing
+    that exact adjacent phrase, so a project titled "Dual-axis tracker for
+    solar arrays" was invisible. Each term is applied as its own `.filter()`
+    call rather than one combined Q object, because these are spanning
+    multi-valued relations: combining them would require all terms to be
+    satisfied by the *same* related row (the same single keyword, the same
+    single author), while chained filters let one term match the title and
+    another match a keyword.
+    """
+    for term in query.split():
+        term_q = Q()
+        for field in SEARCH_FIELDS:
+            term_q |= Q(**{f"{field}__icontains": term})
+        queryset = queryset.filter(term_q)
+    return queryset
+
+
+# Each filter dimension, keyed by its query parameter, as a function that
+# narrows a queryset. Shared by the list endpoint and the facet counts so
+# the two can never drift apart in what a filter means.
+FILTERS = {
+    "department": lambda qs, v: qs.filter(department__name__iexact=v),
+    "academic_level": lambda qs, v: qs.filter(academic_level__iexact=v),
+    "batch": lambda qs, v: qs.filter(batch__iexact=v),
+    "cluster": lambda qs, v: qs.filter(cluster__iexact=v),
+    # Matched through the supervisory roles only, so a name that also
+    # happens to be an author does not pull in unrelated projects.
+    "supervisor": lambda qs, v: qs.filter(
+        project_people__role__in=SUPERVISORY_ROLES,
+        project_people__person__full_name__iexact=v,
+    ),
+}
+
+
+def apply_filters(queryset, params, exclude=None):
+    """Applies `q` plus every filter in FILTERS present in `params`.
+
+    `exclude` omits one dimension, which is what makes the facet counts
+    correct: the number shown beside "Batch 078" must be the number of
+    projects that would remain if the user clicked it -- i.e. counted with
+    every OTHER active filter applied, but not with the batch filter
+    itself, which would otherwise always report either 0 or the current
+    result count.
+    """
+    search = (params.get("q") or "").strip()
+    if search:
+        queryset = apply_search(queryset, search)
+
+    for name, apply in FILTERS.items():
+        if name == exclude:
+            continue
+        value = (params.get(name) or "").strip()
+        if value:
+            queryset = apply(queryset, value)
+    return queryset
+
+
 class ProjectListView(APIView):
     """
     Public read-only list of verified (Published) projects.
     Only ingested projects that have been published to the repository
     are surfaced here. Unpublished/processing jobs live in the ingestion app.
+
+    Query parameters (all optional, all server-side):
+        q               free-text keyword search -- see apply_search
+        department      exact department name
+        academic_level  exact academic level (UG / Masters / PhD / Faculty)
+        batch           exact batch code (e.g. "078")
+        cluster         exact research cluster (AIML / ANLP / NTS / ...)
+        supervisor      exact supervisor name
     """
 
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        queryset = get_published_project_queryset()
+        queryset = apply_filters(get_published_project_queryset(), request.query_params)
 
-        search = (request.query_params.get("q") or "").strip()
-        if search:
-            queryset = queryset.filter(
-                Q(title__icontains=search)
-                | Q(abstract__icontains=search)
-                | Q(project_people__person__full_name__icontains=search)
-                | Q(project_keywords__keyword__name__icontains=search)
-            ).distinct()
-
-        department = (request.query_params.get("department") or "").strip()
-        if department:
-            queryset = queryset.filter(
-                department__name__icontains=department
-            ).distinct()
+        # Spanning a multi-valued relation can duplicate rows; ordering is
+        # newest-published-first so the catalogue has a stable, meaningful
+        # default rather than whatever order the database returns.
+        queryset = queryset.distinct().order_by("-created_at", "-id")
 
         projects = list(queryset)
         serializer = ProjectListSerializer(
@@ -60,6 +141,75 @@ class ProjectListView(APIView):
         return success_response(
             data=serializer.data,
             message="Projects retrieved successfully.",
+        )
+
+
+class ProjectFacetsView(APIView):
+    """
+    The filter values that actually occur among published projects, with
+    counts -- so the browse page's filters are built from real data instead
+    of the full choice lists (which would offer departments and batches
+    that match nothing).
+    """
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        params = request.query_params
+        base = Project.objects.filter(status="Published")
+
+        def counts_for(dimension, field, order):
+            """Counts for one facet dimension, computed with every OTHER
+            active filter applied, so the number beside an option is
+            exactly what selecting it will return."""
+            qs = apply_filters(base, params, exclude=dimension)
+            rows = (
+                qs.exclude(**{f"{field}__isnull": True})
+                .exclude(**{field: ""})
+                .values(field)
+                .annotate(total=Count("id", distinct=True))
+                .order_by(order)
+            )
+            return [
+                {"name": row[field], "count": row["total"]}
+                for row in rows
+                if row[field]
+            ]
+
+        departments = counts_for("department", "department__name", "department__name")
+        academic_levels = counts_for("academic_level", "academic_level", "academic_level")
+        batches = counts_for("batch", "batch", "-batch")
+        clusters = counts_for("cluster", "cluster", "cluster")
+
+        supervisor_rows = (
+            apply_filters(base, params, exclude="supervisor")
+            .filter(project_people__role__in=SUPERVISORY_ROLES)
+            .values("project_people__person__full_name")
+            .annotate(total=Count("id", distinct=True))
+            .order_by("project_people__person__full_name")
+        )
+        supervisors = [
+            {"name": row["project_people__person__full_name"], "count": row["total"]}
+            for row in supervisor_rows
+            if row["project_people__person__full_name"]
+        ]
+
+        return success_response(
+            data={
+                # `total` is the number of results for the CURRENT filters,
+                # so the page can show a meaningful headline figure.
+                "total": apply_filters(base, params).distinct().count(),
+                "departments": departments,
+                "academic_levels": academic_levels,
+                "batches": batches,
+                "clusters": clusters,
+                "supervisors": supervisors,
+                # The full fixed vocabularies, so the upload form and the
+                # filter UI never hardcode them on the client.
+                "cluster_choices": [c[0] for c in Project.CLUSTERS],
+                "department_choices": CANONICAL_DEPARTMENTS,
+            },
+            message="Repository facets retrieved successfully.",
         )
 
 

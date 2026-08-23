@@ -48,7 +48,17 @@ class PDFExtractionStep(BasePipelineStep):
 
                     font_size = max(span.get("size", 0) for span in spans)
                     font_name = spans[0].get("font", "")
-                    is_bold = any("bold" in span.get("font", "").lower() for span in spans)
+                    # Two independent signals for bold, since neither is
+                    # reliable alone: many Word-exported fonts put "Bold"
+                    # right in the font name, but LaTeX-generated PDFs
+                    # commonly use a font whose *name* never says "bold"
+                    # (e.g. "NimbusRomNo9L-Medi" for the heading weight of
+                    # "NimbusRomNo9L-Regu" body text) and instead only set
+                    # PyMuPDF's bold bit (1 << 4) in the span's font flags.
+                    is_bold = any(
+                        "bold" in span.get("font", "").lower() or bool(span.get("flags", 0) & (1 << 4))
+                        for span in spans
+                    )
 
                     extracted_lines.append({
                         "text": text,

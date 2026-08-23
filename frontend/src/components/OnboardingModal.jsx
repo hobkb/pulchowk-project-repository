@@ -4,6 +4,7 @@ import { authApi } from "../api/client";
 import tuLogo from "../assets/tu.png";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheckCircle, faSpinner, faSearch, faPlus, faArrowLeft, faUserCheck } from "@fortawesome/free-solid-svg-icons";
+import { Button, Dialog, ErrorNotice, Eyebrow } from "./ui";
 
 // Helper to strip embedded prefix titles like "Er. ", "Dr. ", "Prof. Dr. " from full names
 const stripTitlePrefix = (name) => {
@@ -19,11 +20,17 @@ const formatTitle = (title) => {
   return `(${title.trim()})`;
 };
 
+const fieldLabel = "block text-xs font-semibold text-ink-2 mb-1.5";
+const fieldInput =
+  "w-full px-3 py-2 bg-white border border-line-strong rounded-sm text-base text-ink placeholder:text-ink-3 hover:border-ink-3 transition-colors";
+
 export default function OnboardingModal() {
   const { user, completeProfile } = useAuth();
-  
+
   // Strictly enforce the role from backend inference
-  const role = user?.inferred_role || "student";
+  // The email shape is only a default: it cannot tell a faculty member
+  // from an administrator, so the account holder chooses.
+  const [role, setRole] = useState(user?.inferred_role || "student");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -35,8 +42,13 @@ export default function OnboardingModal() {
     if (!user?.email) return "";
     const username = user.email.split("@")[0];
     const roll = username.includes(".") ? username.split(".")[0] : username;
-    return roll.toUpperCase();
+    // A campus roll is three digits, letters, then digits (080BCT083).
+    // Anything else -- a personal address, a name -- is not a roll number
+    // and must not be pre-filled as one.
+    return /^\d{3}[a-zA-Z]{2,5}\d{2,4}$/.test(roll) ? roll.toUpperCase() : "";
   })();
+
+  const [rollNumber, setRollNumber] = useState(autoRollNumber);
 
   // Departments list
   const [departments, setDepartments] = useState([]);
@@ -88,6 +100,7 @@ export default function OnboardingModal() {
         .catch(() => setFacultyList([]))
         .finally(() => setLoadingFaculty(false));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role]);
 
   const handleSelectFaculty = (fac) => {
@@ -132,14 +145,15 @@ export default function OnboardingModal() {
     setSubmitting(true);
 
     try {
-      let payload = { 
+      let payload = {
+        role,
         full_name: stripTitlePrefix(fullName.trim()),
         department_id: selectedDepartmentId ? parseInt(selectedDepartmentId, 10) : null
       };
 
       if (role === "student") {
         payload.academic_level = academicLevel;
-        payload.roll_number = autoRollNumber;
+        payload.roll_number = rollNumber;
       } else {
         if (selectedFaculty && !isCustomName) {
           payload.faculty_id = selectedFaculty.id;
@@ -157,54 +171,72 @@ export default function OnboardingModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-      <div className="bg-surface-raised border border-border-subtle rounded-lg max-w-lg w-full p-8 shadow-2xl relative overflow-hidden max-h-[90vh] flex flex-col">
-        {/* Institutional Gold Bar at Top */}
-        <div className="absolute top-0 left-0 right-0 h-1 bg-accent-gold" />
-
-        {/* Header */}
-        <div className="flex items-center gap-4 mb-5 shrink-0">
-          <img src={tuLogo} alt="TU Logo" className="h-10 w-10 object-contain" />
-          <div>
-            <h2 className="text-xl font-bold text-text-primary tracking-tight">Complete Your Profile</h2>
-            <p className="text-xs text-text-secondary">Please confirm your academic details to activate your account</p>
+    // A mandatory gate: it uses the shared Dialog for real dialog
+    // semantics and a focus trap, but is explicitly non-dismissible --
+    // there is nothing behind it to go back to until the profile exists.
+    <Dialog open dismissible={false} width="max-w-lg">
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center gap-4">
+          <img src={tuLogo} alt="" aria-hidden="true" className="h-10 w-10 object-contain shrink-0" />
+          <div className="min-w-0">
+            <Eyebrow tone="primary">Institute of Engineering</Eyebrow>
+            <h2 className="text-section">Complete your profile</h2>
           </div>
         </div>
 
-        {error && (
-          <div className="mb-4 p-3 bg-error-red/10 border border-error-red/30 rounded text-error-red text-xs shrink-0">
-            {error}
-          </div>
-        )}
+        <p className="text-base text-ink-2 leading-relaxed">
+          These details identify you on the repository, and are matched against the names
+          already extracted from deposited reports. Confirm them to continue.
+        </p>
 
-        {/* Form based on account role */}
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4 overflow-y-auto pr-1">
-          
-          {/* STUDENT ROLE FORM */}
+        {error && <ErrorNotice title="Your profile could not be saved" detail={error} />}
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div>
+            <label htmlFor="onboarding-role" className={fieldLabel}>
+              I am joining as
+            </label>
+            <select
+              id="onboarding-role"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className={`${fieldInput} cursor-pointer`}
+            >
+              <option value="student">Student</option>
+              <option value="faculty">Faculty</option>
+              <option value="admin">Administrator</option>
+            </select>
+            <p className="mt-1 text-xs text-ink-3">
+              {role === "student"
+                ? "You can search the catalogue and request full reports."
+                : role === "faculty"
+                  ? "Depositing and reviewing reports. An administrator has to approve this before it takes effect — until then your account is an ordinary reader."
+                  : "Publishing, verification, and deciding requests. An administrator has to approve this before it takes effect — until then your account is an ordinary reader."}
+            </p>
+          </div>
+
           {role === "student" ? (
             <>
               <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-text-secondary mb-1">
-                  Full Name
-                </label>
+                <label htmlFor="onboarding-fullname" className={fieldLabel}>Full name</label>
                 <input
+                  id="onboarding-fullname"
                   type="text"
                   required
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  className="w-full px-3 py-2 bg-surface-sunken border border-border-default rounded text-sm text-text-primary focus:outline-none focus:border-accent-gold"
+                  className={fieldInput}
                   placeholder="e.g. Sarthak Khadka"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-text-secondary mb-1">
-                  Department
-                </label>
+                <label htmlFor="onboarding-department" className={fieldLabel}>Department</label>
                 <select
+                  id="onboarding-department"
                   value={selectedDepartmentId}
                   onChange={(e) => setSelectedDepartmentId(e.target.value)}
-                  className="w-full px-3 py-2 bg-surface-sunken border border-border-default rounded text-sm text-text-primary focus:outline-none focus:border-accent-gold cursor-pointer"
+                  className={`${fieldInput} cursor-pointer`}
                 >
                   {departments.length > 0 ? (
                     departments.map((dept) => (
@@ -219,13 +251,12 @@ export default function OnboardingModal() {
               </div>
 
               <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-text-secondary mb-1">
-                  Academic Level
-                </label>
+                <label htmlFor="onboarding-level" className={fieldLabel}>Academic level</label>
                 <select
+                  id="onboarding-level"
                   value={academicLevel}
                   onChange={(e) => setAcademicLevel(e.target.value)}
-                  className="w-full px-3 py-2 bg-surface-sunken border border-border-default rounded text-sm text-text-primary focus:outline-none focus:border-accent-gold cursor-pointer"
+                  className={`${fieldInput} cursor-pointer`}
                 >
                   <option value="UG">Undergraduate (UG / Bachelors)</option>
                   <option value="Masters">Masters (M.Sc / M.E)</option>
@@ -234,33 +265,35 @@ export default function OnboardingModal() {
               </div>
 
               <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-text-secondary mb-1">
-                  Roll Number
-                </label>
-
+                <label htmlFor="onboarding-roll" className={fieldLabel}>Roll number</label>
                 <input
+                  id="onboarding-roll"
                   type="text"
-                  readOnly
-                  disabled
-                  value={autoRollNumber}
-                  className="w-full px-3 py-2 bg-surface-sunken/60 border border-border-subtle rounded text-sm text-text-secondary font-mono cursor-not-allowed select-none"
+                  value={rollNumber}
+                  onChange={(e) => setRollNumber(e.target.value.toUpperCase())}
+                  className={`${fieldInput} tnum`}
+                  placeholder="e.g. 080BCT083"
                 />
+                <p className="mt-1 text-xs text-ink-3">
+                  {autoRollNumber
+                    ? "Read from your campus address — correct it if it is wrong."
+                    : "Could not be read from your address; please enter it."}
+                </p>
               </div>
             </>
           ) : (
-            /* FACULTY ROLE FORM WITH EXTRACTED SEARCHABLE NAMES */
             <>
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-mono uppercase tracking-wider text-text-secondary">
-                    Select Your Name (Extracted from Repository Reports)
-                  </label>
+                  <span className={fieldLabel.replace("mb-1.5", "mb-0")}>
+                    Select your name, as extracted from deposited reports
+                  </span>
 
                   {isCustomName && (
                     <button
                       type="button"
                       onClick={() => setIsCustomName(false)}
-                      className="text-xs text-accent-gold hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                      className="text-sm text-primary hover:underline flex items-center gap-1 font-medium cursor-pointer"
                     >
                       <FontAwesomeIcon icon={faArrowLeft} className="text-[10px]" />
                       <span>Back to extracted list</span>
@@ -270,27 +303,31 @@ export default function OnboardingModal() {
 
                 {!isCustomName ? (
                   <div className="flex flex-col gap-2">
-                    {/* Search Filter Input */}
                     <div className="relative">
                       <FontAwesomeIcon
                         icon={faSearch}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary text-xs"
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 text-xs"
                       />
                       <input
-                        type="text"
+                        id="faculty-search"
+                        type="search"
                         value={facultySearch}
                         onChange={(e) => setFacultySearch(e.target.value)}
-                        placeholder="Search by name, designation, or title..."
-                        className="w-full pl-8 pr-3 py-2 bg-surface-sunken border border-border-default rounded text-sm text-text-primary focus:outline-none focus:border-accent-gold"
+                        aria-label="Search extracted faculty records"
+                        placeholder="Search by name, designation, or title"
+                        className={`${fieldInput} pl-8`}
                       />
                     </div>
 
-                    {/* Faculty Searchable List */}
-                    <div className="border border-border-default rounded-md bg-surface-sunken max-h-44 overflow-y-auto divide-y divide-border-subtle">
+                    <div
+                      role="group"
+                      aria-label="Extracted faculty records"
+                      className="border border-line rounded-sm max-h-44 overflow-y-auto divide-y divide-line-soft"
+                    >
                       {loadingFaculty ? (
-                        <div className="p-4 text-center text-xs text-text-tertiary flex items-center justify-center gap-2">
-                          <FontAwesomeIcon icon={faSpinner} className="animate-spin text-accent-gold" />
-                          <span>Loading extracted faculty records...</span>
+                        <div className="p-4 text-center text-sm text-ink-3 flex items-center justify-center gap-2">
+                          <FontAwesomeIcon icon={faSpinner} className="animate-spin text-primary" />
+                          <span>Loading extracted faculty records…</span>
                         </div>
                       ) : filteredFaculty.length > 0 ? (
                         filteredFaculty.map((fac) => {
@@ -299,65 +336,62 @@ export default function OnboardingModal() {
                           const subtitle = [fac.designation, formatTitle(fac.title)].filter(Boolean).join(" ");
 
                           return (
-                            <div
+                            <button
                               key={fac.id}
+                              type="button"
                               onClick={() => handleSelectFaculty(fac)}
-                              className={`p-2.5 flex items-center justify-between text-xs cursor-pointer transition-colors ${
+                              aria-pressed={isSelected}
+                              className={`w-full text-left p-2.5 flex items-center justify-between gap-3 text-sm cursor-pointer transition-colors ${
                                 isSelected
-                                  ? "bg-accent-gold/15 border-l-4 border-accent-gold text-text-primary font-semibold"
-                                  : "hover:bg-surface-raised text-text-secondary"
+                                  ? "bg-primary-050 border-l-2 border-l-primary text-ink"
+                                  : "hover:bg-band text-ink-2"
                               }`}
                             >
-                              <div className="flex flex-col gap-0.5">
-                                {/* Name without prefix titles */}
-                                <span className="text-sm font-medium text-text-primary">
-                                  {cleanName}
-                                </span>
-                                {/* Title and Designation below name */}
+                              <span className="flex flex-col gap-0.5 min-w-0">
+                                <span className="text-base text-ink">{cleanName}</span>
                                 {subtitle && (
-                                  <span className="text-[11px] text-text-tertiary font-mono">
-                                    {subtitle}
-                                  </span>
+                                  <span className="text-sm text-ink-3">{subtitle}</span>
                                 )}
-                              </div>
+                              </span>
                               {isSelected && (
-                                <FontAwesomeIcon icon={faUserCheck} className="text-accent-gold text-sm" />
+                                <FontAwesomeIcon
+                                  icon={faUserCheck}
+                                  className="text-primary h-3.5 w-3.5 shrink-0"
+                                  aria-hidden="true"
+                                />
                               )}
-                            </div>
+                            </button>
                           );
                         })
                       ) : (
                         <div className="p-4 text-center flex flex-col items-center gap-2">
-                          <p className="text-xs text-text-secondary">
-                            No faculty found matching "{facultySearch}"
-                          </p>
+                          <p className="text-sm text-ink-2">No faculty found matching "{facultySearch}"</p>
                         </div>
                       )}
                     </div>
 
-                    {/* Option to manually enter name if missing */}
                     <button
                       type="button"
                       onClick={handleSwitchToCustom}
-                      className="mt-1 py-2 px-3 border border-dashed border-border-default hover:border-accent-gold rounded text-xs text-accent-gold hover:bg-accent-gold/5 transition-all flex items-center justify-center gap-1.5 cursor-pointer font-medium"
+                      className="mt-1 py-2 px-3 border border-dashed border-line hover:border-primary rounded-sm text-sm text-primary hover:bg-primary-050 transition-colors flex items-center justify-center gap-1.5 cursor-pointer font-medium"
                     >
                       <FontAwesomeIcon icon={faPlus} className="text-[10px]" />
-                      <span>My name is not in this list (Enter manually)</span>
+                      <span>My name is not in this list (enter manually)</span>
                     </button>
                   </div>
                 ) : (
-                  /* CUSTOM FULL NAME MANUAL INPUT */
-                  <div className="bg-surface-sunken/40 border border-border-default p-3 rounded-md flex flex-col gap-3 animate-fade-in">
+                  <div className="bg-band border border-line p-3 rounded-sm flex flex-col gap-3 pop-in">
                     <div>
-                      <label className="block text-[11px] font-mono uppercase tracking-wider text-accent-gold mb-1 font-semibold">
-                        Full Name (Without prefix title e.g. Ram Shrestha)
+                      <label htmlFor="faculty-custom-name" className="block text-xs font-semibold text-primary mb-1.5">
+                        Full name, without a prefix title
                       </label>
                       <input
+                        id="faculty-custom-name"
                         type="text"
                         required
                         value={fullName}
                         onChange={(e) => setFullName(stripTitlePrefix(e.target.value))}
-                        className="w-full px-3 py-2 bg-surface-sunken border border-border-default rounded text-sm text-text-primary focus:outline-none focus:border-accent-gold"
+                        className={fieldInput}
                         placeholder="e.g. Ram Shrestha"
                       />
                     </div>
@@ -366,13 +400,12 @@ export default function OnboardingModal() {
               </div>
 
               <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-text-secondary mb-1">
-                  Department
-                </label>
+                <label htmlFor="faculty-department" className={fieldLabel}>Department</label>
                 <select
+                  id="faculty-department"
                   value={selectedDepartmentId}
                   onChange={(e) => setSelectedDepartmentId(e.target.value)}
-                  className="w-full px-3 py-2 bg-surface-sunken border border-border-default rounded text-sm text-text-primary focus:outline-none focus:border-accent-gold cursor-pointer"
+                  className={`${fieldInput} cursor-pointer`}
                 >
                   {departments.length > 0 ? (
                     departments.map((dept) => (
@@ -387,52 +420,46 @@ export default function OnboardingModal() {
               </div>
 
               <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-text-secondary mb-1">
-                  Title (Optional)
-                </label>
+                <label htmlFor="faculty-title-field" className={fieldLabel}>Title (optional)</label>
                 <input
+                  id="faculty-title-field"
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full px-3 py-2 bg-surface-sunken border border-border-default rounded text-sm text-text-primary focus:outline-none focus:border-accent-gold"
+                  className={fieldInput}
                   placeholder="e.g. Dr. / Er. / Prof. Dr."
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-text-secondary mb-1">
-                  Designation (Optional)
-                </label>
+                <label htmlFor="faculty-designation-field" className={fieldLabel}>Designation (optional)</label>
                 <input
+                  id="faculty-designation-field"
                   type="text"
                   value={designation}
                   onChange={(e) => setDesignation(e.target.value)}
-                  className="w-full px-3 py-2 bg-surface-sunken border border-border-default rounded text-sm text-text-primary focus:outline-none focus:border-accent-gold"
+                  className={fieldInput}
                   placeholder="e.g. Assistant Professor"
                 />
               </div>
             </>
           )}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="mt-2 w-full py-3 bg-accent-gold hover:bg-accent-gold/90 text-surface-canvas font-semibold text-sm rounded transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shrink-0"
-          >
+          <Button type="submit" variant="primary" size="lg" disabled={submitting} className="mt-3 w-full">
             {submitting ? (
               <>
                 <FontAwesomeIcon icon={faSpinner} className="animate-spin" />
-                <span>Saving Profile...</span>
+                <span>Saving…</span>
               </>
             ) : (
               <>
                 <FontAwesomeIcon icon={faCheckCircle} />
-                <span>Save & Continue to Repository</span>
+                <span>Save and enter the repository</span>
               </>
             )}
-          </button>
+          </Button>
         </form>
       </div>
-    </div>
+    </Dialog>
   );
 }

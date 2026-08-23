@@ -1,273 +1,281 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { projectsApi } from "../api/client";
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { ingestionApi, projectsApi } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faBookOpen, faUsers, faFolderOpen, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
+import { isAdminUser } from "../lib/nav";
+import { ProjectRecord } from "../components/ProjectRecord";
+import {
+  Alert,
+  Button,
+  Card,
+  CardHeader,
+  Container,
+  EmptyState,
+  ErrorNotice,
+  LoadingRows,
+  SearchField,
+  SectionHeading,
+  Status,
+} from "../components/ui";
 
-const PAGE_SIZE = 6;
+/**
+ * The repository home page.
+ *
+ * Structured the way a real catalogue front page is: a short institutional
+ * statement of what the collection is with the search directly under it,
+ * then browse-by-department, then what was added recently. Figures are
+ * stated in a single line of text rather than blown up into a row of
+ * statistic tiles.
+ */
+
+const RECENT_COUNT = 6;
+
+const JOB_STATE = {
+  PENDING: { tone: "neutral", label: "Queued" },
+  PROCESSING: { tone: "warn", label: "Processing" },
+  EXTRACTED: { tone: "info", label: "Awaiting verification" },
+  SECTIONS_PENDING: { tone: "warn", label: "Sections incomplete" },
+  DUPLICATE: { tone: "neutral", label: "Duplicate" },
+  FAILED: { tone: "err", label: "Failed" },
+  VERIFIED: { tone: "ok", label: "Published" },
+};
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const [projects, setProjects] = useState([]);
+  const navigate = useNavigate();
+  const isAdmin = isAdminUser(user);
+
+  const [recent, setRecent] = useState([]);
+  const [facets, setFacets] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
+  const [query, setQuery] = useState("");
+
+  const [openJobs, setOpenJobs] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
-    projectsApi
-      .list()
-      .then((res) => {
-        if (!cancelled) setProjects(res.data || []);
+
+    Promise.all([projectsApi.list(), projectsApi.facets()])
+      .then(([listBody, facetBody]) => {
+        if (cancelled) return;
+        setRecent((listBody.data || []).slice(0, RECENT_COUNT));
+        setFacets(facetBody.data || null);
       })
-      .catch((e) => {
-        if (!cancelled) setError(e.message || "Failed to load projects");
+      .catch((err) => {
+        if (!cancelled) setError(err.message);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+
     return () => {
       cancelled = true;
     };
   }, []);
 
   useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery]);
+    if (!isAdmin) return undefined;
+    let cancelled = false;
 
-  const filteredProjects = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return projects;
-    return projects.filter((p) => {
-      const title = (p.title || "").toLowerCase();
-      const supervisor = (p.supervisor || "").toLowerCase();
-      const authorMatch = (p.authors || []).some((a) =>
-        (a.name || "").toLowerCase().includes(q)
-      );
-      const keywordMatch = (p.technologies || []).some((t) =>
-        (t || "").toLowerCase().includes(q)
-      );
-      return (
-        title.includes(q) ||
-        supervisor.includes(q) ||
-        authorMatch ||
-        keywordMatch
-      );
-    });
-  }, [projects, searchQuery]);
+    ingestionApi
+      .listJobs({ page_size: 50 })
+      .then((body) => {
+        if (cancelled) return;
+        const jobs = body?.results || body?.data || [];
+        setOpenJobs(
+          jobs.filter((job) =>
+            ["EXTRACTED", "SECTIONS_PENDING", "FAILED"].includes(job.status)
+          )
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setOpenJobs([]);
+      });
 
-  const totalPages = Math.max(1, Math.ceil(filteredProjects.length / PAGE_SIZE));
-  const currentProjects = useMemo(
-    () =>
-      filteredProjects.slice(
-        (currentPage - 1) * PAGE_SIZE,
-        currentPage * PAGE_SIZE
-      ),
-    [filteredProjects, currentPage]
-  );
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
 
-  useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(1);
-  }, [currentPage, totalPages]);
-
-  const clusters = useMemo(() => {
-    return ["all", ...new Set(projects.map((p) => p.cluster).filter(Boolean))];
-  }, [projects]);
-
-  const supervisorCount = useMemo(() => {
-    const set = new Set();
-    projects.forEach((p) => (p.supervisors || []).forEach((s) => set.add(s)));
-    return set.size;
-  }, [projects]);
-
-  if (loading) {
-    return (
-      <div className="flex flex-col gap-8">
-        <div className="h-8 bg-border-default/50 rounded animate-pulse w-72"></div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-20 bg-border-default/40 rounded-md animate-pulse"></div>
-          ))}
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="h-52 bg-surface-raised border border-border-subtle rounded-lg animate-pulse"></div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-16 border border-dashed border-border-subtle rounded-lg">
-        <p className="text-body text-text-secondary">Failed to load projects.</p>
-        <p className="text-body-sm text-text-tertiary mt-1">{error}</p>
-      </div>
-    );
-  }
+  const firstName = user?.first_name || user?.profile?.full_name?.split(" ")[0];
 
   return (
-    <div className="flex flex-col gap-8">
-      {/* Welcome Banner */}
-      <div className="flex flex-col gap-2">
-        <h1 className="text-h1 font-bold tracking-tight text-text-primary">
-          Welcome back, {user?.first_name || "User"}
-        </h1>
-        <p className="text-body text-text-secondary max-w-2xl leading-relaxed">
-          Explore and query undergraduate project theses, source technologies, and key research findings from the Department of Electronics & Computer Engineering.
-        </p>
-      </div>
+    <>
+      {/* Institutional introduction and the primary way in: search. */}
+      <section className="border-b border-line bg-band">
+        <Container width="wide" className="px-5 sm:px-8 py-10 sm:py-12">
+          <p className="text-sm font-bold text-accent">
+            Institute of Engineering &middot; Pulchowk Campus
+          </p>
+          <h1 className="mt-2 text-hero max-w-3xl">Pulchowk Project Repository</h1>
+          <p className="mt-3 max-w-2xl text-base text-ink-2">
+            A catalogue of student and faculty engineering project reports submitted at Pulchowk
+            Campus. Each record lists its authors, supervisor, department and abstract. Full
+            reports remain confidential and can be requested from their authors.
+          </p>
 
-      {/* Stats Counter Section per Chapter 14 */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-surface-raised border border-border-subtle rounded-md p-5 flex items-center gap-4">
-          <div className="h-10 w-10 rounded-sm bg-accent-primary/10 border border-accent-primary/20 flex items-center justify-center text-accent-primary">
-            <FontAwesomeIcon icon={faBookOpen} className="h-5 w-5" />
-          </div>
-          <div>
-            <p className="text-micro font-mono uppercase tracking-wider text-text-tertiary">Total Indexed</p>
-            <p className="text-xl font-bold text-text-primary mt-0.5">{projects.length} Projects</p>
-          </div>
-        </div>
-        <div className="bg-surface-raised border border-border-subtle rounded-md p-5 flex items-center gap-4">
-          <div className="h-10 w-10 rounded-sm bg-accent-violet/10 border border-accent-violet/20 flex items-center justify-center text-accent-violet">
-            <FontAwesomeIcon icon={faFolderOpen} className="h-5 w-5" />
-          </div>
-          <div>
-            <p className="text-micro font-mono uppercase tracking-wider text-text-tertiary">Research Domains</p>
-            <p className="text-xl font-bold text-text-primary mt-0.5">{clusters.length - 1} Domains</p>
-          </div>
-        </div>
-        <div className="bg-surface-raised border border-border-subtle rounded-md p-5 flex items-center gap-4">
-          <div className="h-10 w-10 rounded-sm bg-success-emerald/10 border border-success-emerald/20 flex items-center justify-center text-success-emerald">
-            <FontAwesomeIcon icon={faUsers} className="h-5 w-5" />
-          </div>
-          <div>
-            <p className="text-micro font-mono uppercase tracking-wider text-text-tertiary">Indexed Supervisors</p>
-            <p className="text-xl font-bold text-text-primary mt-0.5">{supervisorCount} Academic Faculty</p>
-          </div>
-        </div>
-      </div>
-
-      {/* DEFERRED — cluster filter tabs. No domain/cluster data is ingested yet
-          (16 published projects all have empty clusters), so the tabs are
-          disabled to avoid rendering an empty filter bar. Re-enable once
-          project_domains / research_group carry real data.
-      <div className="flex flex-wrap gap-1.5 items-center border-y border-border-subtle py-4">
-        <span className="text-micro font-mono uppercase tracking-wider text-text-tertiary flex items-center gap-1.5 mr-2">
-          <FontAwesomeIcon icon={faFilter} className="h-3.5 w-3.5" />
-          Cluster:
-        </span>
-        {clusters.map((cluster) => (
-          <button
-            key={cluster}
-            onClick={() => setSelectedCluster(cluster)}
-            className={`px-3 py-1 rounded-sm border capitalize cursor-pointer transition-all duration-150 ${
-              selectedCluster === cluster
-                ? "bg-accent-primary/10 border-accent-primary/30 text-accent-primary font-semibold"
-                : "bg-surface-raised border-border-subtle text-text-secondary hover:text-text-primary"
-            }`}
-          >
-            {cluster}
-          </button>
-        ))}
-      </div>
-      */}
-
-      {/* Projects Grid Display */}
-      {filteredProjects.length === 0 ? (
-        <div className="text-center py-16 border border-dashed border-border-subtle rounded-lg">
-          <p className="text-body text-text-secondary">No projects matching the query or filter parameters.</p>
-        </div>
-      ) : (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {currentProjects.map((p) => (
-            <Link
-              key={p.id}
-              to={`/projects/${p.id}`}
-              className="bg-surface-raised border border-border-subtle hover:border-border-default hover:bg-surface-hover/20 rounded-lg p-6 flex flex-col gap-4 transition-all duration-200 group"
-            >
-              {/* Card Header info */}
-              <div className="flex justify-between items-start gap-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-micro font-mono text-text-tertiary uppercase bg-surface-sunken px-2 py-0.5 rounded-sm border border-border-subtle/50">
-                    {p.department}
-                  </span>
-                  <span className="text-micro font-mono text-text-tertiary bg-surface-sunken px-2 py-0.5 rounded-sm border border-border-subtle/50">
-                    {p.year}
-                  </span>
-                </div>
-              </div>
-
-              {/* Title */}
-              <h3 className="text-body font-semibold text-text-primary leading-snug group-hover:text-accent-primary transition-colors duration-150 line-clamp-2">
-                {p.title}
-              </h3>
-
-              {/* Excerpt Abstract */}
-              <p className="text-body-sm text-text-secondary leading-relaxed line-clamp-2">
-                {p.abstract}
-              </p>
-
-              {/* Footer info: Authors & Supervisor */}
-              <div className="border-t border-border-subtle pt-4 mt-auto flex flex-col gap-2 text-micro text-text-secondary">
-                <div className="flex justify-between items-center">
-                  <span>
-                    <span className="text-text-tertiary">Supervisor: </span>
-                    <span className="text-text-primary font-medium">{p.supervisor || "—"}</span>
-                  </span>
-                  <span className="text-accent-primary text-xs font-semibold group-hover:translate-x-1 transition-transform">
-                    →
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {(p.technologies || []).slice(0, 3).map((t) => (
-                    <span key={t} className="bg-surface-sunken px-2 py-0.5 rounded-sm text-micro font-mono text-text-tertiary">
-                      {t}
-                    </span>
-                  ))}
-                  {(p.technologies || []).length > 3 && (
-                    <span className="bg-surface-sunken px-2 py-0.5 rounded-sm text-micro font-mono text-text-tertiary">
-                      +{(p.technologies || []).length - 3} more
-                    </span>
-                  )}
-                </div>
-              </div>
-            </Link>
-          ))}
+          <div className="mt-6 max-w-2xl">
+            <SearchField
+              value={query}
+              onChange={setQuery}
+              onSubmit={(value) => {
+                const trimmed = value.trim();
+                navigate(trimmed ? `/projects?q=${encodeURIComponent(trimmed)}` : "/projects");
+              }}
+              placeholder="Search by title, author, supervisor or keyword"
+              size="lg"
+            />
           </div>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between border-t border-border-subtle pt-4 text-micro">
-              <span className="font-mono text-text-tertiary">
-                Page {currentPage} of {totalPages}
-              </span>
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-border-default bg-surface-raised text-text-secondary hover:text-text-primary hover:border-border-strong disabled:opacity-40 transition-all cursor-pointer disabled:cursor-not-allowed"
-                >
-                  <FontAwesomeIcon icon={faChevronLeft} className="h-3 w-3" /> Previous
-                </button>
-                <button
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-border-default bg-surface-raised text-text-secondary hover:text-text-primary hover:border-border-strong disabled:opacity-40 transition-all cursor-pointer disabled:cursor-not-allowed"
-                >
-                  Next <FontAwesomeIcon icon={faChevronRight} className="h-3 w-3" />
-                </button>
-              </div>
-            </div>
+          {facets && (
+            <p className="mt-3 text-sm text-ink-2">
+              <span className="font-semibold text-ink tnum">{facets.total}</span>{" "}
+              {facets.total === 1 ? "project" : "projects"} from{" "}
+              <span className="font-semibold text-ink tnum">
+                {(facets.departments || []).length}
+              </span>{" "}
+              {(facets.departments || []).length === 1 ? "department" : "departments"}
+              {(facets.batches || []).length > 0 && (
+                <>
+                  , covering{" "}
+                  <span className="font-semibold text-ink tnum">
+                    {(facets.batches || []).length}
+                  </span>{" "}
+                  {(facets.batches || []).length === 1 ? "batch" : "batches"}
+                </>
+              )}
+              .
+            </p>
           )}
-        </>
-      )}
-    </div>
+        </Container>
+      </section>
+
+      <Container width="wide" className="px-5 sm:px-8 py-9">
+        {firstName && (
+          <p className="mb-6 text-sm text-ink-2">
+            Signed in as <span className="font-semibold text-ink">{firstName}</span>.
+          </p>
+        )}
+
+        {error && (
+          <ErrorNotice
+            title="The repository could not be reached"
+            detail={error}
+            action={
+              <Button variant="secondary" size="sm" onClick={() => window.location.reload()}>
+                Reload
+              </Button>
+            }
+            className="mb-8"
+          />
+        )}
+
+        {/* Reviewers see outstanding work first. */}
+        {isAdmin && openJobs.length > 0 && (
+          <Card className="mb-9">
+            <CardHeader
+              title="Deposits awaiting your attention"
+              actions={<Link to="/admin/approvals" className="text-sm">Open queue</Link>}
+            />
+            <ul className="divide-y divide-line">
+              {openJobs.slice(0, 4).map((job) => {
+                const state = JOB_STATE[job.status] || JOB_STATE.PENDING;
+                return (
+                  <li key={job.id}>
+                    <Link
+                      to={`/admin/jobs/${job.id}`}
+                      className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1.5 px-4 py-3 no-underline hover:bg-band hover:no-underline"
+                    >
+                      <span className="min-w-0 text-sm text-ink truncate">
+                        <span className="text-ink-3 tnum">#{job.id}</span>{" "}
+                        {job.original_filename || "Untitled deposit"}
+                      </span>
+                      <Status tone={state.tone}>{state.label}</Status>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+        )}
+
+        <div className="grid grid-cols-1 gap-x-12 gap-y-9 lg:grid-cols-[minmax(0,1fr)_17rem] items-start">
+          <section className="min-w-0">
+            <SectionHeading
+              title="Recently published"
+              actions={<Link to="/projects">Browse all projects</Link>}
+            />
+
+            {loading && <LoadingRows rows={4} />}
+
+            {!loading && !error && recent.length === 0 && (
+              <EmptyState
+                title="No projects published yet"
+                description="Verified project reports appear here as they are added to the repository."
+                action={
+                  isAdmin ? (
+                    <Button as={Link} to="/admin/upload" variant="secondary" size="sm">
+                      Deposit a report
+                    </Button>
+                  ) : null
+                }
+              />
+            )}
+
+            {!loading && recent.length > 0 && (
+              <div className="border-t border-line">
+                {recent.map((project) => (
+                  <ProjectRecord key={project.id} project={project} />
+                ))}
+              </div>
+            )}
+          </section>
+
+          <aside className="min-w-0">
+            {facets && (facets.departments || []).length > 0 && (
+              <Card>
+                <CardHeader title="Browse by department" />
+                <ul className="divide-y divide-line">
+                  {facets.departments.map((entry) => (
+                    <li key={entry.name}>
+                      <Link
+                        to={`/projects?department=${encodeURIComponent(entry.name)}`}
+                        className="flex items-baseline justify-between gap-3 px-4 py-2.5 text-sm no-underline hover:bg-band hover:no-underline"
+                      >
+                        <span className="min-w-0">{entry.name}</span>
+                        <span className="shrink-0 text-xs text-ink-3 tnum">{entry.count}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
+
+            {facets && (facets.batches || []).length > 0 && (
+              <Card className="mt-5">
+                <CardHeader title="Browse by batch" />
+                <div className="flex flex-wrap gap-1.5 p-4">
+                  {facets.batches.map((entry) => (
+                    <Link
+                      key={entry.name}
+                      to={`/projects?batch=${encodeURIComponent(entry.name)}`}
+                      className="rounded-sm border border-line bg-band px-2 py-0.5 text-xs text-ink-2 no-underline tnum hover:border-ink-3 hover:text-ink hover:no-underline"
+                    >
+                      {entry.name}
+                    </Link>
+                  ))}
+                </div>
+              </Card>
+            )}
+
+            <Alert tone="neutral" className="mt-5">
+              Full project reports are confidential. Records here show the abstract and
+              catalogue details only.
+            </Alert>
+          </aside>
+        </div>
+      </Container>
+    </>
   );
 }

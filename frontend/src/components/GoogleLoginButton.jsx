@@ -27,8 +27,13 @@ export default function GoogleLoginButton({ onError }) {
           console.error("Google Login failed");
         }
       }}
-      theme="filled_black"
-      shape="pill"
+      // Square and outlined, to match a system that has no pills in it
+      // and sets its own controls as ink on paper.
+      theme="outline"
+      shape="rectangular"
+      text="signin_with"
+      logo_alignment="left"
+      width="320"
     />
   );
 }

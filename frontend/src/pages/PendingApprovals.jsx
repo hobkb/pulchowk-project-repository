@@ -1,263 +1,275 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ingestionApi } from "../api/client";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faChevronLeft, faChevronRight, faListCheck } from "@fortawesome/free-solid-svg-icons";
+import { ingestionApi } from "../api/client";
 import {
-  faListCheck,
-  faClock,
-  faSpinner,
-  faCheckCircle,
-  faCircleXmark,
-  faFileLines,
-  faArrowRight,
-  faFilter,
-  faChevronLeft,
-  faChevronRight,
-} from "@fortawesome/free-solid-svg-icons";
+  Breadcrumb,
+  Button,
+  Container,
+  Crumb,
+  EmptyState,
+  ErrorNotice,
+  LoadingRows,
+  PageHeading,
+  Status,
+  Table,
+  TableBody,
+  TableHead,
+  Td,
+  Th,
+  Tr,
+  statusRowAccent,
+} from "../components/ui";
+
+/**
+ * The verification queue.
+ *
+ * Behaviour is unchanged: the same status filter, the same paginated
+ * ingestion job list, the same link into the review workflow. Only the
+ * presentation is new — a bordered table with a status accent down the
+ * left of each row.
+ */
+
+const STATUS_META = {
+  EXTRACTED: { tone: "info", label: "Awaiting verification" },
+  PENDING: { tone: "neutral", label: "Queued" },
+  PROCESSING: { tone: "warn", label: "Processing", pulse: true },
+  VERIFIED: { tone: "ok", label: "Published" },
+  SECTIONS_PENDING: { tone: "warn", label: "Sections incomplete" },
+  DUPLICATE: { tone: "neutral", label: "Duplicate" },
+  FAILED: { tone: "err", label: "Processing failed" },
+};
+
+function statusMeta(status) {
+  return STATUS_META[status] || { tone: "neutral", label: status };
+}
+
+const FILTERS = [
+  { label: "All", value: "ALL" },
+  { label: "Awaiting verification", value: "EXTRACTED" },
+  { label: "Queued", value: "PENDING" },
+  { label: "Processing", value: "PROCESSING" },
+  { label: "Published", value: "VERIFIED" },
+  { label: "Sections incomplete", value: "SECTIONS_PENDING" },
+  { label: "Failed", value: "FAILED" },
+];
+
+const PAGE_SIZE = 10;
 
 export default function PendingApprovals() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedStatus, setSelectedStatus] = useState("ALL");
-
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    const fetchJobs = async () => {
+
+    async function fetchJobs() {
       try {
         setLoading(true);
+        setError(null);
         const params = {
           ...(selectedStatus !== "ALL" ? { status: selectedStatus } : {}),
           page,
         };
         const res = await ingestionApi.listJobs(params);
-        if (!cancelled) {
-          const list = Array.isArray(res?.data)
-            ? res.data
-            : Array.isArray(res?.results)
+        if (cancelled) return;
+
+        const list = Array.isArray(res?.data)
+          ? res.data
+          : Array.isArray(res?.results)
             ? res.results
             : Array.isArray(res)
-            ? res
-            : [];
-          setJobs(list);
+              ? res
+              : [];
+        setJobs(list);
 
-          const count = res?.count || list.length;
-          setTotalCount(count);
-          setTotalPages(Math.max(1, Math.ceil(count / 10)));
-        }
+        const count = res?.count ?? list.length;
+        setTotalCount(count);
+        setTotalPages(Math.max(1, Math.ceil(count / PAGE_SIZE)));
       } catch (err) {
-        if (!cancelled) {
-          setError(err.message || "Failed to load ingestion jobs.");
-        }
+        if (!cancelled) setError(err.message || "Failed to load ingestion jobs.");
       } finally {
         if (!cancelled) setLoading(false);
       }
-    };
+    }
+
     fetchJobs();
     return () => {
       cancelled = true;
     };
-  }, [selectedStatus, page]);
-
-  const renderStatusBadge = (status) => {
-    switch (status) {
-      case "EXTRACTED":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-micro font-mono bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
-            <FontAwesomeIcon icon={faFileLines} className="h-3 w-3" /> Awaiting Review
-          </span>
-        );
-      case "PENDING":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-micro font-mono bg-warning-amber/10 text-warning-amber border border-warning-amber/20">
-            <FontAwesomeIcon icon={faClock} className="h-3 w-3" /> Queued
-          </span>
-        );
-      case "PROCESSING":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-micro font-mono bg-warning-amber/10 text-warning-amber border border-warning-amber/20">
-            <FontAwesomeIcon icon={faSpinner} className="animate-spin h-3 w-3" /> Processing
-          </span>
-        );
-      case "VERIFIED":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-micro font-mono bg-success-emerald/10 text-success-emerald border border-success-emerald/20">
-            <FontAwesomeIcon icon={faCheckCircle} className="h-3 w-3" /> Published
-          </span>
-        );
-      case "SECTIONS_PENDING":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-micro font-mono bg-warning-amber/10 text-warning-amber border border-warning-amber/20">
-            <FontAwesomeIcon icon={faFileLines} className="h-3 w-3" /> Sections Incomplete
-          </span>
-        );
-      case "FAILED":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-micro font-mono bg-error-red/10 text-error-red border border-error-red/20">
-            <FontAwesomeIcon icon={faCircleXmark} className="h-3 w-3" /> Processing Error
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-micro font-mono bg-surface-sunken text-text-tertiary">
-            <FontAwesomeIcon icon={faClock} className="h-3 w-3" /> {status}
-          </span>
-        );
-    }
-  };
-
-  const statusOptions = [
-    { label: "All Submissions", value: "ALL" },
-    { label: "Awaiting Review", value: "EXTRACTED" },
-    { label: "Queued", value: "PENDING" },
-    { label: "Processing", value: "PROCESSING" },
-    { label: "Published", value: "VERIFIED" },
-    { label: "Sections Incomplete", value: "SECTIONS_PENDING" },
-    { label: "Processing Error", value: "FAILED" },
-  ];
+  }, [selectedStatus, page, reloadKey]);
 
   return (
-    <div className="flex flex-col gap-8 max-w-6xl mx-auto py-4">
-      {/* Header */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-micro font-mono uppercase tracking-wider text-accent-primary bg-accent-primary/10 border border-accent-primary/20 px-2 py-0.5 rounded-sm">
-            Department Archive
-          </span>
+    <>
+      <Breadcrumb>
+        <Crumb>
+          <Link to="/dashboard">Home</Link>
+        </Crumb>
+        <Crumb>Administration</Crumb>
+        <Crumb last>Verification queue</Crumb>
+      </Breadcrumb>
+
+      <Container width="wide" className="px-5 sm:px-8 py-8">
+        <PageHeading
+          title="Verification queue"
+          lead="Deposited reports and their progress through extraction, verification and publication."
+          actions={
+            <Button as={Link} to="/admin/upload" variant="primary" size="sm">
+              Deposit a report
+            </Button>
+          }
+        />
+
+        <div className="mt-6 flex flex-wrap gap-x-6 gap-y-1 border-b border-line">
+          {FILTERS.map((option) => {
+            const selected = selectedStatus === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => {
+                  setPage(1);
+                  setSelectedStatus(option.value);
+                }}
+                className={`-mb-px cursor-pointer border-b-[3px] pb-2 text-sm transition-colors ${
+                  selected
+                    ? "border-b-accent font-semibold text-primary"
+                    : "border-b-transparent text-ink-2 hover:text-ink"
+                }`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
         </div>
-        <h1 className="text-h1 font-bold tracking-tight text-text-primary">
-          Project Submissions & Approvals
-        </h1>
-        <p className="text-body text-text-secondary leading-relaxed max-w-2xl">
-          Review submitted project documents, verify bibliographic details, and publish verified research to the department catalog.
-        </p>
-      </div>
 
-      {/* Filter Tabs */}
-      <div className="flex flex-wrap gap-2 items-center border-b border-border-subtle pb-4">
-        <span className="text-micro font-mono uppercase tracking-wider text-text-tertiary flex items-center gap-1.5 mr-2">
-          <FontAwesomeIcon icon={faFilter} className="h-3 w-3" />
-          Status Filter:
-        </span>
-        {statusOptions.map((opt) => (
-          <button
-            key={opt.value}
-            onClick={() => setSelectedStatus(opt.value)}
-            className={`px-3 py-1 rounded-sm text-body-sm transition-all duration-150 cursor-pointer border ${
-              selectedStatus === opt.value
-                ? "bg-accent-primary/10 border-accent-primary/30 text-accent-primary font-semibold"
-                : "bg-surface-raised border-border-subtle text-text-secondary hover:text-text-primary"
-            }`}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
+        <div className="mt-6">
+          {loading && <LoadingRows rows={4} />}
 
-      {/* Content Area */}
-      {loading ? (
-        <div className="flex flex-col gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              className="h-20 bg-surface-raised border border-border-subtle rounded-lg animate-pulse"
-            />
-          ))}
-        </div>
-      ) : error ? (
-        <div className="text-center py-16 border border-dashed border-border-subtle rounded-lg">
-          <p className="text-body text-text-secondary">Failed to load ingestion jobs.</p>
-          <p className="text-body-sm text-error-red mt-1">{error}</p>
-        </div>
-      ) : jobs.length === 0 ? (
-        <div className="text-center py-16 border border-dashed border-border-subtle rounded-lg flex flex-col items-center gap-3">
-          <FontAwesomeIcon icon={faListCheck} className="h-10 w-10 text-text-tertiary/40" />
-          <p className="text-body font-semibold text-text-primary">No ingestion jobs found.</p>
-          <p className="text-body-sm text-text-secondary">
-            Upload a project thesis PDF to start the automated extraction pipeline.
-          </p>
-          <Link
-            to="/admin/upload"
-            className="mt-2 px-4 py-2 bg-accent-primary text-white text-body-sm font-medium rounded-md hover:bg-accent-primary/90 transition-all"
-          >
-            Upload Project PDF
-          </Link>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {jobs.map((job) => (
-            <div
-              key={job.id}
-              className="bg-surface-raised border border-border-subtle hover:border-border-default rounded-lg p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all duration-150"
-            >
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <span className="text-micro font-mono text-text-tertiary bg-surface-sunken px-2 py-0.5 rounded-sm border border-border-subtle/50">
-                    JOB #{job.id}
-                  </span>
-                  {renderStatusBadge(job.status)}
-                  <span className="text-micro font-mono text-text-tertiary">
-                    {new Date(job.created_at).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                </div>
-
-                <h3 className="text-body font-semibold text-text-primary leading-snug">
-                  {job.original_filename}
-                </h3>
-
-                <p className="text-micro font-mono text-text-secondary">
-                  Uploaded by: {job.uploaded_by_email || job.uploaded_by || "Admin"}
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3 shrink-0">
-                <Link
-                  to={`/admin/jobs/${job.id}`}
-                  className="px-4 py-2 rounded-md bg-surface-sunken hover:bg-surface-hover border border-border-default text-text-primary text-body-sm font-medium flex items-center gap-2 transition-all cursor-pointer"
+          {!loading && error && (
+            <ErrorNotice
+              title="The queue could not be loaded"
+              detail={error}
+              action={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setReloadKey((key) => key + 1)}
                 >
-                  <span>Review Submission</span>
-                  <FontAwesomeIcon icon={faArrowRight} className="h-3.5 w-3.5" />
-                </Link>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+                  Try again
+                </Button>
+              }
+            />
+          )}
 
-      {/* Pagination controls */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-border-subtle pt-4 text-micro mt-2">
-          <span className="font-mono text-text-tertiary">
-            Page {page} of {totalPages} &middot; Total {totalCount} jobs
-          </span>
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-border-default bg-surface-raised text-text-secondary hover:text-text-primary hover:border-border-strong disabled:opacity-40 transition-all cursor-pointer disabled:cursor-not-allowed font-medium text-body-sm"
+          {!loading && !error && jobs.length === 0 && (
+            <EmptyState
+              icon={faListCheck}
+              title={selectedStatus === "ALL" ? "No deposits yet" : "No deposits with this status"}
+              description="Depositing a project report starts the extraction pipeline; it appears here as soon as it is queued."
+              action={
+                <Button as={Link} to="/admin/upload" variant="secondary" size="sm">
+                  Deposit a report
+                </Button>
+              }
+            />
+          )}
+
+          {!loading && !error && jobs.length > 0 && (
+            <Table>
+              <TableHead>
+                <Th className="w-16">Ref</Th>
+                <Th>Document</Th>
+                <Th>Status</Th>
+                <Th hide="md">Deposited by</Th>
+                <Th hide="sm">Date</Th>
+                <Th align="right">
+                  <span className="sr-only">Actions</span>
+                </Th>
+              </TableHead>
+              <TableBody>
+                {jobs.map((job) => {
+                  const meta = statusMeta(job.status);
+                  return (
+                    <Tr key={job.id} accentClass={statusRowAccent(meta.tone)}>
+                      <Td className="whitespace-nowrap text-xs text-ink-3 tnum">#{job.id}</Td>
+                      <Td className="max-w-xs">
+                        <span className="block truncate text-ink">{job.original_filename}</span>
+                      </Td>
+                      <Td>
+                        <Status tone={meta.tone} pulse={meta.pulse}>
+                          {meta.label}
+                        </Status>
+                      </Td>
+                      <Td hide="md" className="text-sm text-ink-2">
+                        <span className="block max-w-[180px] truncate">
+                          {job.uploaded_by_email || job.uploaded_by || "—"}
+                        </span>
+                      </Td>
+                      <Td hide="sm" className="whitespace-nowrap text-sm text-ink-3 tnum">
+                        {new Date(job.created_at).toLocaleDateString(undefined, {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </Td>
+                      <Td align="right">
+                        <Link
+                          to={`/admin/jobs/${job.id}`}
+                          className="whitespace-nowrap text-sm font-semibold"
+                        >
+                          Review
+                        </Link>
+                      </Td>
+                    </Tr>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+
+          {!loading && !error && totalPages > 1 && (
+            <nav
+              aria-label="Queue pages"
+              className="mt-4 flex flex-wrap items-center justify-between gap-3"
             >
-              <FontAwesomeIcon icon={faChevronLeft} className="h-3 w-3" /> Previous
-            </button>
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-border-default bg-surface-raised text-text-secondary hover:text-text-primary hover:border-border-strong disabled:opacity-40 transition-all cursor-pointer disabled:cursor-not-allowed font-medium text-body-sm"
-            >
-              Next <FontAwesomeIcon icon={faChevronRight} className="h-3 w-3" />
-            </button>
-          </div>
+              <p className="text-sm text-ink-2">
+                Page <span className="tnum">{page}</span> of{" "}
+                <span className="tnum">{totalPages}</span> &middot;{" "}
+                <span className="tnum">{totalCount}</span> deposits
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                >
+                  <FontAwesomeIcon icon={faChevronLeft} className="h-3 w-3" aria-hidden="true" />
+                  Previous
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                >
+                  Next
+                  <FontAwesomeIcon icon={faChevronRight} className="h-3 w-3" aria-hidden="true" />
+                </Button>
+              </div>
+            </nav>
+          )}
         </div>
-      )}
-    </div>
+      </Container>
+    </>
   );
 }

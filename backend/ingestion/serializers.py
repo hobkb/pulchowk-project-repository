@@ -1,5 +1,7 @@
 from django.conf import settings
 from rest_framework import serializers
+
+from repository.models import Project
 from ingestion.models import IngestionJob, IngestionJobLog
 
 
@@ -81,6 +83,14 @@ class ProjectFieldsSerializer(serializers.Serializer):
     campus_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     research_group_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     supervisors = serializers.ListField(required=False, allow_empty=True, allow_null=True)
+    # Validated against the same fixed vocabulary the model uses, so an
+    # arbitrary value cannot reach the database through the review payload.
+    cluster = serializers.ChoiceField(
+        choices=[c[0] for c in Project.CLUSTERS],
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
 
 
 class ProjectSectionSerializer(serializers.Serializer):

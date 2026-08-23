@@ -1,6 +1,7 @@
 import time
 import traceback
 from ingestion.models import IngestionJob, IngestionJobLog
+from notifications.services import NotificationService
 from ingestion.pipeline.steps.hash_dedup import HashDedupStep
 from ingestion.pipeline.steps.pdf_extraction import PDFExtractionStep
 from ingestion.pipeline.steps.line_reconstruction import LineReconstructionStep
@@ -55,6 +56,9 @@ class PipelineRunner:
                     message="Ingestion pipeline completed successfully. Status set to EXTRACTED."
                 )
 
+                NotificationService.notify_job_ready_for_review(job)
+                NotificationService.notify_job_awaiting_admin(job)
+
             return context
 
         except Exception as exc:
@@ -68,4 +72,7 @@ class PipelineRunner:
                 level="ERROR",
                 message=f"Pipeline execution failed: {error_text}"
             )
+
+            NotificationService.notify_job_failed(job)
+
             raise exc

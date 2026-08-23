@@ -37,12 +37,18 @@ class JobPublishAPIViewTests(TestCase):
         response = client.get(reverse("ingestion:job-detail", args=[job.id]))
 
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(response.data["data"]["people_and_roles"][0]["full_name"], "Jane Doe")
+        self.assertEqual(
+            response.data["data"]["extracted_payload"]["people_and_roles"][0]["full_name"],
+            "Jane Doe",
+        )
 
     def test_publish_creates_project_relationships_and_people(self):
         user = User.objects.create_user(
             email="user@example.com", password="secret123", is_staff=True
         )
+        campus = Campus.objects.get_or_create(name="Pulchowk Campus")[0]
+        department = Department.objects.create(campus=campus, name="Computer Engineering")
+        ResearchGroup.objects.create(department=department, name="AI Lab")
         job = IngestionJob.objects.create(
             file=SimpleUploadedFile("report.pdf", b"%PDF-1.4", content_type="application/pdf"),
             original_filename="report.pdf",
@@ -125,7 +131,7 @@ class JobPublishAPIViewTests(TestCase):
         self.assertEqual(project.project_domains.count(), 1)
         self.assertEqual(project.sections.count(), 2)
         introduction = project.sections.get(heading="Introduction")
-        subsection = project.sections.get(heading="Problem statement")
+        subsection = project.sections.get(heading="Problem Statement")
         self.assertFalse(hasattr(introduction, "parent"))
         self.assertFalse(hasattr(subsection, "parent"))
         self.assertEqual(project.references.get().citation, "[1] Example reference")
@@ -189,7 +195,7 @@ class JobPublishAPIViewTests(TestCase):
         user = User.objects.create_user(
             email="normalize@example.com", password="secret123", is_staff=True
         )
-        campus = Campus.objects.create(name="Pulchowk Campus", location="Pulchowk")
+        campus = Campus.objects.get_or_create(name="Pulchowk Campus")[0]
         Department.objects.create(campus=campus, name="Computer Engineering")
         job = IngestionJob.objects.create(
             file=SimpleUploadedFile("report.pdf", b"%PDF-1.4", content_type="application/pdf"),
@@ -239,7 +245,7 @@ class JobPublishAPIViewTests(TestCase):
         self.assertTrue(Faculty.objects.filter(full_name="Ramesh Sharma").exists())
         self.assertTrue(ProjectSection.objects.filter(canonical_section="Literature Review").exists())
 
-    def test_flat_section_extraction_ignores_subheadings(self):
+    def test_nested_section_extraction_builds_real_hierarchy_for_numbered_subheadings(self):
         pages = [
             {
                 "page_number": 1,
@@ -262,17 +268,30 @@ class JobPublishAPIViewTests(TestCase):
 
         sections = MetadataSectionsStep.extract_project_sections(pages)
 
+        # A numbered subheading is a real nested child node now (level 2),
+        # not text folded into the parent's own flat content string --
+        # exactly one top-level tree node per main (chapter-level) section.
         introduction, methodology = sections
         self.assertEqual(introduction["heading"], "Introduction")
         self.assertEqual(introduction["heading_level"], 1)
         self.assertEqual(introduction["display_order"], 1)
-        self.assertNotIn("children", introduction)
-        self.assertIn("Background details.", introduction["content"])
-        self.assertIn("Motivation details.", introduction["content"])
+        self.assertEqual(introduction["content"], "Opening context.")
+        self.assertEqual(len(introduction["children"]), 2)
+
+        background, motivation = introduction["children"]
+        self.assertEqual(background["heading"], "Background")
+        self.assertEqual(background["heading_level"], 2)
+        self.assertEqual(background["content"], "Background details.")
+        self.assertEqual(motivation["heading"], "Motivation")
+        self.assertEqual(motivation["heading_level"], 2)
+        self.assertEqual(motivation["content"], "Motivation details.\nMore introduction context.")
+
         self.assertEqual(methodology["heading"], "Methodology")
+        self.assertEqual(methodology["heading_level"], 1)
         self.assertEqual(methodology["display_order"], 2)
         self.assertEqual(methodology["content"], "Method details.")
         self.assertEqual(methodology["word_count"], 2)
+        self.assertEqual(methodology["children"], [])
 
     def test_section_step_exposes_raw_references_for_publish(self):
         user = User.objects.create_user(email="references@example.com", password="secret123")
@@ -299,18 +318,26 @@ class JobPublishAPIViewTests(TestCase):
 
         self.assertEqual(
             result["draft_metadata"]["references"],
-            [{"title": "References", "citation": "References\n[1] A preserved citation."}],
+            [{
+                "title": "References",
+                "citation": "References\n[1] A preserved citation.",
+                "page_start": 1,
+                "page_end": 1,
+            }],
         )
         self.assertNotIn("back_matter", result["draft_metadata"])
 
     def test_section_extraction_accepts_unnumbered_and_chapter_headings(self):
+        # "CHAPTER I" and "INTRODUCTION" are given here already merged onto
+        # one line, matching what LineReconstructor produces from the raw
+        # two-line PDF rendering before MetadataSectionsStep ever sees it
+        # (see line_reconstruction tests for that merge itself).
         pages = [
             {
                 "page_number": 1,
                 "page_type": "content",
                 "lines": [
-                    {"text": "CHAPTER I", "is_bold": True, "font_size": 14},
-                    {"text": "INTRODUCTION", "is_bold": True, "font_size": 14},
+                    {"text": "CHAPTER I INTRODUCTION", "is_bold": True, "font_size": 14},
                     {"text": "Introduction text."},
                     {"text": "CHAPTER 2: METHODOLOGY", "is_bold": True, "font_size": 14},
                     {"text": "Method text."},
@@ -320,7 +347,13 @@ class JobPublishAPIViewTests(TestCase):
 
         sections = MetadataSectionsStep.extract_project_sections(pages)
 
+        # Original wording/casing is preserved -- only the "Chapter N"
+        # numbering prefix is stripped out (into the separate `numbering`
+        # field), never the heading text itself.
         self.assertEqual([section["heading"] for section in sections], [
+            "INTRODUCTION", "METHODOLOGY",
+        ])
+        self.assertEqual([section["canonical_section"] for section in sections], [
             "Introduction", "Methodology",
         ])
         self.assertEqual([section["content"] for section in sections], [

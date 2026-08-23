@@ -60,6 +60,7 @@ class UserSerializer(serializers.ModelSerializer):
     is_department_admin = serializers.SerializerMethodField()
     is_staff = serializers.BooleanField(read_only=True)
     is_superuser = serializers.BooleanField(read_only=True)
+    profile = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -70,6 +71,7 @@ class UserSerializer(serializers.ModelSerializer):
             "last_name",
             "role",
             "person",
+            "profile",
             "is_onboarded",
             "inferred_role",
             "is_department_admin",
@@ -89,6 +91,49 @@ class UserSerializer(serializers.ModelSerializer):
             return False
         from organization.models import DepartmentAdmin
         return DepartmentAdmin.objects.filter(faculty_id=obj.person_id, is_active=True).exists()
+
+    def get_profile(self, obj):
+        """The details of the Person record this account is linked to.
+
+        `person` above is only the id, which tells a client nothing it can
+        display -- an account page had no way to show which department or
+        roll number the account actually belongs to without fetching every
+        user and guessing which one was the current one. This returns the
+        real linked record instead, read-only, with the subtype-specific
+        fields included only when the person genuinely is that subtype.
+
+        Returns None for an account that has not completed onboarding, so
+        a client can tell "no profile" apart from "empty profile".
+        """
+        person = getattr(obj, "person", None)
+        if person is None:
+            return None
+
+        data = {
+            "full_name": person.full_name,
+            "email": person.email or "",
+            "department": person.department.name if person.department_id else None,
+            "kind": "person",
+        }
+
+        student = getattr(person, "student", None)
+        if student is not None:
+            data["kind"] = "student"
+            data["roll_number"] = student.roll_number
+            data["academic_level"] = student.academic_level
+            return data
+
+        faculty = getattr(person, "faculty", None)
+        if faculty is not None:
+            data["kind"] = "faculty"
+            data["title"] = faculty.title or ""
+            data["designation"] = faculty.designation or ""
+            data["research_group"] = (
+                faculty.research_group.name if faculty.research_group_id else None
+            )
+            return data
+
+        return data
         
 
 class GoogleLoginSerializer(serializers.Serializer):

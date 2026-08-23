@@ -1,193 +1,289 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ingestionApi } from "../api/client";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCloudArrowUp, faFilePdf, faSpinner, faCircleExclamation, faCheckCircle } from "@fortawesome/free-solid-svg-icons";
+import { faCloudArrowUp, faFilePdf, faSpinner } from "@fortawesome/free-solid-svg-icons";
+import { ingestionApi } from "../api/client";
+import { Link } from "react-router-dom";
+import {
+  Breadcrumb,
+  Button,
+  Card,
+  CardHeader,
+  Container,
+  Crumb,
+  ErrorNotice,
+  PageHeading,
+  SectionHeading,
+  Status,
+} from "../components/ui";
+
+/**
+ * Deposit — hands a project report PDF to the ingestion pipeline.
+ *
+ * The upload behaviour is unchanged (validate as PDF, POST as multipart,
+ * follow the created job into the review workflow). The drop target is
+ * now a plainly-ruled area rather than a dashed card with a circular
+ * icon badge, and it is properly operable from the keyboard: the file
+ * input is a real labelled control rather than a transparent overlay
+ * that a keyboard user could never reach.
+ */
+
+const ACCEPTED = ".pdf,application/pdf";
+
+function isPdf(candidate) {
+  return (
+    candidate.type === "application/pdf" || candidate.name.toLowerCase().endsWith(".pdf")
+  );
+}
+
+// The real stages of a deposit. `phase` is driven entirely by the async
+// request, so the loader can never be shown when nothing is happening and
+// can never stay behind once the request settles.
+const IDLE = "idle";
+const UPLOADING = "uploading";
+const PROCESSING = "processing";
+const DONE = "done";
 
 export default function AdminUpload() {
   const [file, setFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [phase, setPhase] = useState(IDLE);
   const [error, setError] = useState(null);
+  // Real bytes-sent percentage from the browser's upload progress events.
+  const [percent, setPercent] = useState(0);
+  const inputRef = useRef(null);
   const navigate = useNavigate();
 
-  const handleFileChange = (e) => {
-    const selected = e.target.files?.[0];
-    if (selected) {
-      if (selected.type !== "application/pdf" && !selected.name.endsWith(".pdf")) {
-        setError("Only PDF files are supported for thesis ingestion.");
-        setFile(null);
-        return;
-      }
-      setError(null);
-      setFile(selected);
+  const busy = phase === UPLOADING || phase === PROCESSING || phase === DONE;
+
+  function accept(candidate) {
+    if (!candidate) return;
+    if (!isPdf(candidate)) {
+      setError("Only PDF files can be deposited. The pipeline reads the report's own layout, which requires the original PDF.");
+      setFile(null);
+      return;
     }
-  };
+    setError(null);
+    setFile(candidate);
+  }
 
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
+  function clearSelection() {
+    setFile(null);
+    setError(null);
+    // Reset the input too, or re-picking the same file fires no change
+    // event and the selection appears to be ignored.
+    if (inputRef.current) inputRef.current.value = "";
+  }
 
-  const handleDragLeave = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const dropped = e.dataTransfer.files?.[0];
-    if (dropped) {
-      if (dropped.type !== "application/pdf" && !dropped.name.endsWith(".pdf")) {
-        setError("Only PDF files are supported for thesis ingestion.");
-        setFile(null);
-        return;
-      }
-      setError(null);
-      setFile(dropped);
-    }
-  };
-
-  const handleUpload = async (e) => {
-    e.preventDefault();
+  async function handleSubmit(event) {
+    event.preventDefault();
+    // A second submit while one is in flight would create a duplicate job.
+    if (busy) return;
     if (!file) {
-      setError("Please select a thesis PDF file to upload.");
+      setError("Choose a project report PDF to deposit.");
       return;
     }
 
-    setUploading(true);
+    setPhase(UPLOADING);
+    setPercent(0);
     setError(null);
 
     try {
       const formData = new FormData();
       formData.append("file", file);
+      const res = await ingestionApi.uploadJob(formData, {
+        onProgress: setPercent,
+      });
 
-      const res = await ingestionApi.uploadJob(formData);
+      // The upload itself has finished; the server now queues extraction.
+      setPhase(PROCESSING);
       const jobId = res?.data?.id;
+      if (!jobId) throw new Error("The server accepted the file but returned no job reference.");
 
-      if (jobId) {
-        navigate(`/admin/jobs/${jobId}`);
-      } else {
-        throw new Error("Job ID missing from server response.");
-      }
+      setPhase(DONE);
+      // Stay in the DONE state through the navigation so the button cannot
+      // be pressed again during the transition.
+      navigate(`/admin/jobs/${jobId}`, { replace: true });
     } catch (err) {
-      setError(err.message || "Failed to upload project thesis file.");
-    } finally {
-      setUploading(false);
+      setError(err.message || "The report could not be deposited.");
+      setPhase(IDLE);
+      setPercent(0);
     }
-  };
+  }
 
   return (
-    <div className="max-w-4xl mx-auto flex flex-col gap-8 py-4">
-      {/* Header */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-micro font-mono uppercase tracking-wider text-accent-primary bg-accent-primary/10 border border-accent-primary/20 px-2 py-0.5 rounded-sm">
-            Project Archive
-          </span>
-        </div>
-        <h1 className="text-h1 font-bold tracking-tight text-text-primary">
-          Submit Project Report
-        </h1>
-        <p className="text-body text-text-secondary leading-relaxed">
-          Upload an official undergraduate thesis or departmental project PDF for cataloging and digital archive storage.
-        </p>
-      </div>
+    <>
+      <Breadcrumb>
+        <Crumb>
+          <Link to="/dashboard">Home</Link>
+        </Crumb>
+        <Crumb>Administration</Crumb>
+        <Crumb last>Deposit report</Crumb>
+      </Breadcrumb>
 
-      {/* Upload Box */}
-      <form onSubmit={handleUpload} className="flex flex-col gap-6">
-        <div
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          className={`border-2 border-dashed rounded-xl p-10 flex flex-col items-center justify-center text-center transition-all duration-200 cursor-pointer relative ${
-            isDragging
-              ? "border-accent-primary bg-accent-primary/5 scale-[1.005]"
-              : file
-              ? "border-success-emerald/50 bg-success-emerald/5"
-              : "border-border-default hover:border-accent-primary/50 bg-surface-raised"
-          }`}
-        >
-          <input
-            type="file"
-            accept=".pdf,application/pdf"
-            onChange={handleFileChange}
-            disabled={uploading}
-            className="absolute inset-0 opacity-0 cursor-pointer disabled:cursor-not-allowed"
-          />
+      <Container width="reading" className="px-5 sm:px-8 py-8">
+      <PageHeading
+        title="Deposit a report"
+        lead="Hand a project report to the extraction pipeline. It reads the front matter, people and section structure, then returns it to you for verification before anything is published."
+      />
 
-          {file ? (
-            <div className="flex flex-col items-center gap-3">
-              <div className="h-16 w-16 rounded-full bg-success-emerald/10 border border-success-emerald/20 flex items-center justify-center text-success-emerald">
-                <FontAwesomeIcon icon={faFilePdf} className="h-8 w-8" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-body font-semibold text-text-primary">
-                  {file.name}
-                </span>
-                <span className="text-micro font-mono text-text-tertiary">
-                  {(file.size / (1024 * 1024)).toFixed(2)} MB &middot; PDF Document
-                </span>
-              </div>
-              <span className="text-micro font-mono text-success-emerald flex items-center gap-1.5 bg-success-emerald/10 px-2.5 py-1 rounded-full mt-1">
-                <FontAwesomeIcon icon={faCheckCircle} /> Ready for Processing
-              </span>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-3">
-              <div className="h-16 w-16 rounded-full bg-surface-sunken border border-border-subtle flex items-center justify-center text-text-secondary group-hover:text-accent-primary">
-                <FontAwesomeIcon icon={faCloudArrowUp} className="h-8 w-8" />
-              </div>
-              <div>
-                <p className="text-body font-semibold text-text-primary">
-                  Click to browse or drop a project report PDF here
+      <form onSubmit={handleSubmit} className="mt-7 flex flex-col gap-6">
+        <div>
+          <label htmlFor="report-file" className="block text-xs font-semibold text-ink-2">
+            Project report (PDF)
+          </label>
+
+          <div
+            onDragOver={(event) => {
+              event.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={(event) => {
+              event.preventDefault();
+              setIsDragging(false);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              setIsDragging(false);
+              accept(event.dataTransfer.files?.[0]);
+            }}
+            className={`mt-2 flex flex-col items-center gap-4 rounded-md border px-6 py-10 text-center transition-colors ${
+              isDragging
+                ? "border-primary bg-primary-050"
+                : file
+                  ? "border-ok bg-ok-bg"
+                  : "border-dashed border-line-strong bg-band"
+            }`}
+          >
+            <FontAwesomeIcon
+              icon={file ? faFilePdf : faCloudArrowUp}
+              className={`h-6 w-6 ${file ? "text-ok" : "text-ink-3"}`}
+              aria-hidden="true"
+            />
+
+            {file ? (
+              <div className="flex flex-col items-center gap-2">
+                <p className="text-item break-all">{file.name}</p>
+                <p className="text-sm text-ink-3 tnum">
+                  {(file.size / (1024 * 1024)).toFixed(2)} MB · PDF
                 </p>
-                <p className="text-body-sm text-text-tertiary mt-1">
-                  Supports official undergraduate and graduate project reports (.pdf)
+                <Status tone="ok">Ready to deposit</Status>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-1.5">
+                <p className="text-item">Drop the report here, or choose a file</p>
+                <p className="text-sm text-ink-2">
+                  Undergraduate, master&rsquo;s and doctoral project reports, as originally submitted.
                 </p>
               </div>
-            </div>
-          )}
+            )}
+
+            <input
+              ref={inputRef}
+              id="report-file"
+              name="report-file"
+              type="file"
+              accept={ACCEPTED}
+              disabled={busy}
+              onChange={(event) => accept(event.target.files?.[0])}
+              className="cursor-pointer text-sm text-ink-2 file:mr-3 file:cursor-pointer file:rounded-sm file:border file:border-line-strong file:bg-white file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-ink hover:file:bg-band disabled:cursor-not-allowed"
+            />
+          </div>
         </div>
 
-        {error && (
-          <div className="p-4 rounded-md bg-error-red/10 border border-error-red/20 flex items-start gap-3 text-error-red text-body-sm">
-            <FontAwesomeIcon icon={faCircleExclamation} className="h-4 w-4 shrink-0 mt-0.5" />
-            <div className="flex-1">{error}</div>
+        {error && <ErrorNotice title="The report could not be uploaded" detail={error} />}
+
+        {busy && (
+          <div className="flex flex-col gap-2" role="status" aria-live="polite">
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-ink-2">
+                {phase === UPLOADING
+                  ? "Uploading the report…"
+                  : phase === PROCESSING
+                    ? "Queued for extraction. Taking you to the review screen…"
+                    : "Opening the review screen…"}
+              </p>
+              {phase === UPLOADING && (
+                <span className="text-sm text-ink-2 tnum">{percent}%</span>
+              )}
+            </div>
+
+            {/* While bytes are moving this is a real determinate bar driven
+                by the browser's upload events. Once the server has the file
+                there is no progress information to report, so it becomes an
+                indeterminate sweep rather than a fabricated percentage. */}
+            <div
+              className="h-1.5 w-full overflow-hidden rounded-sm bg-band"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={phase === UPLOADING ? percent : undefined}
+            >
+              {phase === UPLOADING ? (
+                <div
+                  className="h-full bg-primary transition-[width] duration-150 ease-out"
+                  style={{ width: `${percent}%` }}
+                />
+              ) : (
+                <div className="indeterminate-bar h-full w-1/3 bg-primary" />
+              )}
+            </div>
           </div>
         )}
 
-        {/* Form Actions */}
-        <div className="flex items-center justify-between border-t border-border-subtle pt-6">
-          <button
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
+          <Button
             type="button"
-            onClick={() => setFile(null)}
-            disabled={!file || uploading}
-            className="px-4 py-2 rounded-md border border-border-default bg-surface-raised text-text-secondary text-body-sm hover:text-text-primary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed transition-all"
+            variant="subtle"
+            onClick={clearSelection}
+            disabled={!file || busy}
           >
-            Clear Selection
-          </button>
+            Clear selection
+          </Button>
 
-          <button
-            type="submit"
-            disabled={!file || uploading}
-            className="px-6 py-2.5 rounded-md bg-accent-primary hover:bg-accent-primary/90 text-white font-medium text-body-sm flex items-center gap-2 transition-all shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {uploading ? (
+          <Button type="submit" variant="primary" size="lg" disabled={!file || busy}>
+            {busy ? (
               <>
-                <FontAwesomeIcon icon={faSpinner} className="animate-spin h-4 w-4" />
-                Processing Document...
+                <FontAwesomeIcon
+                  icon={faSpinner}
+                  className="h-3.5 w-3.5 animate-spin"
+                  aria-hidden="true"
+                />
+                {phase === UPLOADING
+                  ? "Uploading…"
+                  : phase === PROCESSING
+                    ? "Processing…"
+                    : "Opening review…"}
               </>
             ) : (
               <>
-                <FontAwesomeIcon icon={faCloudArrowUp} className="h-4 w-4" />
-                Submit Document
+                <FontAwesomeIcon icon={faCloudArrowUp} className="h-4 w-4" aria-hidden="true" />
+                Upload project
               </>
             )}
-          </button>
+          </Button>
         </div>
       </form>
-    </div>
+
+      <section className="mt-10">
+        <SectionHeading title="What happens next" />
+        <ol className="divide-y divide-line border-t border-line">
+          {[
+            ["Extraction", "The pipeline reads the PDF's layout: front matter, authors and roll numbers, supervisors, and the full nested section structure."],
+            ["Verification", "You review what was extracted, correct anything the document made ambiguous, and reorder or edit sections as needed."],
+            ["Publication", "On approval the record joins the public catalogue, and the depositor receives a notice."],
+          ].map(([title, body], index) => (
+            <li key={title} className="flex gap-4 py-4">
+              <span className="shrink-0 text-sm font-semibold text-accent tnum">{index + 1}.</span>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-ink">{title}</p>
+                <p className="mt-0.5 text-sm text-ink-2 measure">{body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+      </Container>
+    </>
   );
 }

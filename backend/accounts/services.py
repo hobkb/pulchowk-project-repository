@@ -5,7 +5,11 @@ from django.conf import settings
 from django.db import models, transaction
 
 from .models import User, Person, Student, Faculty, UserRole
-from ingestion.pipeline.utils.text_cleaners import normalize_person_name
+from ingestion.pipeline.utils.text_cleaners import (
+    ROLL_PATTERN,
+    clean_roll_number,
+    normalize_person_name,
+)
 
 
 class GoogleAuthenticationError(Exception):
@@ -36,7 +40,8 @@ class GoogleService:
                 settings.GOOGLE_CLIENT_ID,
             )
         except Exception as exc:
-            raise GoogleAuthenticationError("Invalid Google token.") from exc
+            print("GOOGLE TOKEN ERROR:", repr(exc))
+            raise GoogleAuthenticationError(f"Google token verification failed: {exc}") from exc
 
         if not payload.get("email_verified"):
             raise GoogleAuthenticationError(
@@ -45,7 +50,11 @@ class GoogleService:
 
         email = payload.get("email", "").lower()
 
-        if not email.endswith("@pcampus.edu.np"):
+        # `settings` is already imported at module level; re-importing it
+        # here would make the name local to this whole function and break
+        # the settings.GOOGLE_CLIENT_ID use above with an UnboundLocalError.
+        allowed = getattr(settings, "ALLOWED_LOGIN_DOMAINS", ("pcampus.edu.np",))
+        if not any(email.endswith(f"@{domain}") for domain in allowed):
             raise GoogleAuthenticationError(
                 "Only Pulchowk Campus Google accounts are allowed."
             )
@@ -176,10 +185,18 @@ class ProfileService:
     def save_student_profile(user: User, data: dict) -> Student:
         """
         Updates an existing student record (matched strictly by email) or creates a new one.
-        Roll number is strictly derived from the verified institutional email address.
+
+        The roll number is read from the verified institutional address
+        when that address carries one, and otherwise taken from what the
+        student entered. Deriving it unconditionally meant an address whose
+        local part is a name rather than a roll ("siwansh@...") stored the
+        name as the roll number and silently discarded what was typed.
         """
         email = user.email
         derived_roll = ProfileService.extract_roll_number_from_email(email)
+        submitted_roll = clean_roll_number(str(data.get("roll_number") or "").strip())
+        if not ROLL_PATTERN.fullmatch(derived_roll or ""):
+            derived_roll = submitted_roll
         existing_student = Student.objects.filter(email=email).first()
         full_name = normalize_person_name(data["full_name"])
 

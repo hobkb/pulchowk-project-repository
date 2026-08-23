@@ -1,3 +1,4 @@
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 
 import re
@@ -92,6 +93,7 @@ class ProjectSectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProjectSection
         fields = [
+            "id",
             "heading",
             "canonical_section",
             "heading_level",
@@ -101,6 +103,49 @@ class ProjectSectionSerializer(serializers.ModelSerializer):
             "page_end",
             "word_count",
         ]
+
+
+def build_section_tree(rows):
+    """Rebuilds the nested section tree from the flat ProjectSection rows.
+
+    ProjectSection has no parent FK, but it does not need one: rows are
+    written in document order (a single pre-order `display_order`
+    sequence, assigned by the publish view) and each carries its
+    heading_level. That pair is enough to reconstruct the exact tree with
+    the same open-section stack the ingestion pipeline used to build it in
+    the first place -- a heading either opens a sibling at its own level,
+    a child of whatever is currently deepest-open, or closes deeper levels
+    back up to its own.
+
+    A level that would leave an impossible gap (a level-3 heading with no
+    level-2 open) is clamped to the deepest legal level rather than
+    dropped, mirroring the ingestion-side rule, so a section can never
+    vanish from the published document just because its recorded level is
+    inconsistent.
+    """
+    root = []
+    stack = []  # list[(level, node)], shallowest-open first
+
+    for row in rows:
+        node = dict(row)
+        level = node.get("heading_level") or 1
+        if not isinstance(level, int) or level < 1:
+            level = 1
+        max_allowed = (stack[-1][0] + 1) if stack else 1
+        level = min(level, max_allowed)
+
+        node["heading_level"] = level
+        node["children"] = []
+
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        if stack:
+            stack[-1][1]["children"].append(node)
+        else:
+            root.append(node)
+        stack.append((level, node))
+
+    return root
 
 
 class ProjectReferenceSerializer(serializers.ModelSerializer):
@@ -124,6 +169,7 @@ class ProjectListSerializer(serializers.ModelSerializer):
     keywords = serializers.SerializerMethodField()
     coverImage = serializers.SerializerMethodField()
     pdfUrl = serializers.SerializerMethodField()
+    accessStatus = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -144,6 +190,7 @@ class ProjectListSerializer(serializers.ModelSerializer):
             "keywords",
             "coverImage",
             "pdfUrl",
+            "accessStatus",
         ]
 
     def get_people(self, obj, roles=None):
@@ -173,9 +220,17 @@ class ProjectListSerializer(serializers.ModelSerializer):
         supervisors = []
 
         for pp in people:
-            
+
             person = pp.person
-            faculty = getattr(person, "faculty", None)
+            # Person -> Faculty is multi-table inheritance, so this accessor
+            # raises Faculty.DoesNotExist (not AttributeError) when the
+            # person is not a faculty member -- a plain Person recorded as an
+            # Industry Mentor would have crashed the whole response, and
+            # getattr's default cannot catch that.
+            try:
+                faculty = person.faculty
+            except ObjectDoesNotExist:
+                faculty = None
 
             designation = ""
             title = ""
@@ -205,6 +260,14 @@ class ProjectListSerializer(serializers.ModelSerializer):
         return ""
 
     def get_cluster(self, obj):
+        """The project's research cluster.
+
+        `Project.cluster` is the real, validated field. The domain /
+        research-group fallbacks are kept only so projects published before
+        the field existed still report something rather than going blank.
+        """
+        if obj.cluster:
+            return obj.cluster
         domain = obj.project_domains.order_by("id").first()
         if domain:
             return domain.domain.name
@@ -216,9 +279,36 @@ class ProjectListSerializer(serializers.ModelSerializer):
         return obj.status
 
     def get_resultsSummary(self, obj):
+        """Kept in the response shape for compatibility, but always empty
+        for an unprivileged caller.
+
+        This used to return the raw text of the report's Results (or
+        Conclusion) section to anyone who listed projects -- confidential
+        report body, served from the public catalogue endpoint. Only
+        reviewers see it now; the abstract is what the public record
+        summarises a project with.
+        """
+        if not self._is_privileged():
+            return ""
         return _section_content(obj, _RESULTS_CANONICAL) or _section_content(
             obj, _CONCLUSION_CANONICAL
         )
+
+    def _is_privileged(self):
+        """See ProjectDetailSerializer._is_privileged -- defined here too so
+        the list serializer can apply the same rule without importing it."""
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            return False
+        if user.is_staff or user.is_superuser or getattr(user, "role", None) == "admin":
+            return True
+        person_id = getattr(user, "person_id", None)
+        if person_id is None:
+            return False
+        from organization.models import DepartmentAdmin
+
+        return DepartmentAdmin.objects.filter(faculty_id=person_id, is_active=True).exists()
 
     def get_abstract(self, obj):
         return flatten_text(obj.abstract)
@@ -235,18 +325,64 @@ class ProjectListSerializer(serializers.ModelSerializer):
         return None
 
     def get_pdfUrl(self, obj):
-        user = self.context.get("request").user if self.context.get("request") else None
-        is_admin = bool(user and (user.is_staff or getattr(user, "role", None) == "admin"))
-        if not is_admin:
+        """The report file, for reviewers and for readers whose access
+        request was approved.
+
+        An approval has to actually do something, otherwise it is just a
+        message; this is what it does.
+        """
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
             return None
+
+        allowed = self._is_privileged()
+        if not allowed:
+            from repository.models import ProjectAccessRequest
+
+            allowed = ProjectAccessRequest.objects.filter(
+                project=obj,
+                requester=user,
+                status=ProjectAccessRequest.Status.APPROVED,
+            ).exists()
+
+        if not allowed:
+            return None
+
         report = obj.assets.filter(asset_type="Report").first()
         if report and report.file:
             return report.file.url
         return None
 
+    def get_accessStatus(self, obj):
+        """How the requesting user stands with this report: "granted" for a
+        reviewer or an approved requester, otherwise their request state."""
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            return "anonymous"
+        if self._is_privileged():
+            return "granted"
+
+        from repository.models import ProjectAccessRequest
+
+        latest = (
+            ProjectAccessRequest.objects.filter(project=obj, requester=user)
+            .order_by("-created_at")
+            .first()
+        )
+        if latest is None:
+            return "none"
+        return {
+            ProjectAccessRequest.Status.APPROVED: "granted",
+            ProjectAccessRequest.Status.PENDING: "pending",
+            ProjectAccessRequest.Status.DECLINED: "declined",
+        }[latest.status]
+
 
 class ProjectDetailSerializer(ProjectListSerializer):
     sections = serializers.SerializerMethodField()
+    sections_restricted = serializers.SerializerMethodField()
     references = serializers.SerializerMethodField()
     domains = serializers.SerializerMethodField()
     academic_level = serializers.CharField(read_only=True)
@@ -262,6 +398,7 @@ class ProjectDetailSerializer(ProjectListSerializer):
         model = Project
         fields = ProjectListSerializer.Meta.fields + [
             "sections",
+            "sections_restricted",
             "references",
             "domains",
             "academic_level",
@@ -274,11 +411,36 @@ class ProjectDetailSerializer(ProjectListSerializer):
             "updated_at",
         ]
 
+    def get_sections_restricted(self, obj):
+        """True when the report body is being withheld from this requester,
+        so a client can say so honestly instead of rendering an empty
+        document and implying the report has no content."""
+        return not self._is_privileged()
+
     def get_sections(self, obj):
-        sections = obj.sections.order_by("display_order")
-        return ProjectSectionSerializer(sections, many=True).data
+        """The report's own section tree -- Introduction, Methodology,
+        Results and the rest.
+
+        This is the confidential body of a student's project report and is
+        served ONLY to reviewers. It was previously returned to every
+        caller, signed in or not, which published the full extracted text
+        of every report in the repository through the public detail
+        endpoint. Withholding it in the interface alone would not have
+        helped: anyone could still read it straight from the API.
+
+        The abstract is deliberately NOT part of this -- it stays on the
+        public record as the readable academic summary.
+        """
+        if not self._is_privileged():
+            return []
+        sections = obj.sections.order_by("display_order", "id")
+        rows = ProjectSectionSerializer(sections, many=True).data
+        return build_section_tree(rows)
 
     def get_references(self, obj):
+        # Part of the report body, and withheld on the same rule.
+        if not self._is_privileged():
+            return []
         return ProjectReferenceSerializer(obj.references.all(), many=True).data
 
     def get_domains(self, obj):

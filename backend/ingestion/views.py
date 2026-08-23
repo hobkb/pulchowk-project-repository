@@ -15,6 +15,7 @@ from ingestion.serializers import (
     IngestionJobLogSerializer,
 )
 from ingestion.tasks import run_ingestion_pipeline
+from organization.departments import canonical_department
 from organization.models import Campus, Department, ResearchGroup
 from repository.models import (
     Domain,
@@ -27,14 +28,17 @@ from repository.models import (
     ProjectReference,
     ProjectSection,
 )
+import itertools
 import mimetypes, re
 from ingestion.pipeline.utils.text_cleaners import (
     clean_roll_number,
     normalize_canonical_section,
     normalize_person_name,
+    split_person_title,
 )
 
 from core.responses import success_response
+from notifications.services import NotificationService
 
 
 class StandardResultsSetPagination(PageNumberPagination):
@@ -179,7 +183,16 @@ class JobDetailAPIView(APIView):
         serializer = IngestionJobReadSerializer(job)
         data = serializer.data
         data["review_state"] = review_state
-    
+
+        # Jobs extracted before departments were canonicalised carry the
+        # cover page's raw wording. Map it here, on read, so the review form
+        # can preselect it -- without rewriting the stored payload, which
+        # stays exactly as the pipeline produced it.
+        fields = (data.get("extracted_payload") or {}).get("project_fields")
+        if isinstance(fields, dict) and fields.get("department_name"):
+            canonical = canonical_department(fields["department_name"])
+            fields["department_name"] = canonical or ""
+
         return success_response(
             data=data,
             message="Job retrieved successfully.",
@@ -309,24 +322,58 @@ class JobPublishAPIView(APIView):
             yield from JobPublishAPIView._iter_sections(section.get("children") or [])
 
     @classmethod
-    def _create_sections(cls, project, sections):
+    def _create_sections(cls, project, sections, _counter=None, _depth=1):
+        """Flattens the nested section tree into ProjectSection rows.
+
+        `display_order` is assigned as a single document-wide pre-order
+        sequence rather than the per-parent index the tree itself carries.
+        The tree numbers each node within its own parent, so "1.1" and
+        "2 Literature Review" both arrive as display_order=1; writing those
+        numbers straight through collided on a model whose Meta.ordering is
+        ["display_order"], and the published project's sections came back
+        interleaved (Introduction, 1.1, Literature Review, 1.2, ...) with
+        the document order -- and therefore any hierarchy rebuilt from it --
+        destroyed. A pre-order sequence preserves exact document order, and
+        together with heading_level is enough for the repository serializer
+        to rebuild the true parent/child tree (see build_section_tree there).
+
+        `heading_level` is likewise derived from actual nesting depth when
+        the payload omits it, so a child can never be recorded at a level
+        that would make it look like its parent's sibling.
+        """
+        if _counter is None:
+            _counter = itertools.count(1)
+
         for index, section_data in enumerate(sections, start=1):
             if not isinstance(section_data, dict):
                 continue
             heading = section_data.get("heading", f"Section {index}")
             canonical_section = section_data.get("canonical_section")
+            heading_level = section_data.get("heading_level")
+            if not isinstance(heading_level, int) or heading_level < 1:
+                heading_level = _depth
             ProjectSection.objects.create(
                 project=project,
-                heading=normalize_person_name(heading),
+                # A heading is not a person's name -- normalize_person_name
+                # strips the dots out of a numbering prefix ("1.1 Background"
+                # -> "11 Background"). ProjectSection.save() already applies
+                # normalize_section_title, which is the correct normalizer
+                # and preserves the numbering.
+                heading=(heading or "").strip(),
                 canonical_section=normalize_canonical_section(canonical_section),
-                heading_level=section_data.get("heading_level", 1),
-                display_order=section_data.get("display_order", index),
+                heading_level=heading_level,
+                display_order=next(_counter),
                 content=section_data.get("content", ""),
                 page_start=section_data.get("page_start"),
                 page_end=section_data.get("page_end"),
                 word_count=section_data.get("word_count", 0),
             )
-            cls._create_sections(project, section_data.get("children") or [])
+            cls._create_sections(
+                project,
+                section_data.get("children") or [],
+                _counter=_counter,
+                _depth=heading_level + 1,
+            )
             
     def _validate_publish_payload(self, payload):
         project_fields = payload.get("project_fields", {})
@@ -419,29 +466,17 @@ class JobPublishAPIView(APIView):
 
         return student
 
-    TITLE_TOKEN_RE = re.compile(
-        r'^(?P<title>(?:Prof(?:essor)?\.?|Dr\.?|Mr\.?|Mrs\.?|Ms\.?|Miss|Drs\.?|Engr\.?|Rev\.?|Hon\.?)'
-        r'(?:\s+(?:Prof(?:essor)?\.?|Dr\.?|Mr\.?|Mrs\.?|Ms\.?|Miss|Drs\.?|Engr\.?|Rev\.?|Hon\.?))*)\s+(?P<name>.+)$',
-        re.IGNORECASE,
-    )
-
     @staticmethod
     def _normalize_full_name(full_name):
         return normalize_person_name(full_name)
 
     @classmethod
     def _parse_faculty_full_name(cls, full_name):
-        cleaned = str(full_name or "").strip()
-        if not cleaned:
-            return "", ""
-
-        match = cls.TITLE_TOKEN_RE.match(cleaned)
-        if not match:
-            return cls._normalize_full_name(cleaned), ""
-
-        title = match.group("title").strip()
-        name = cls._normalize_full_name(match.group("name").strip())
-        return name, title
+        # Shared with MetadataPeopleStep's supervisor extraction so a title
+        # prefix (including compounds like "Asst. Prof.") is recognized the
+        # same way whether it's still attached at extraction time or only
+        # gets split off here at publish time.
+        return split_person_title(full_name)
 
     @staticmethod
     def get_or_create_faculty(
@@ -526,6 +561,8 @@ class JobPublishAPIView(APIView):
                     ),
                 )
 
+                NotificationService.notify_job_published(job, project)
+
             return success_response(
                 data={"project_id": str(project.id)},
                 message="Project sections updated and status set to Verified.",
@@ -562,26 +599,25 @@ class JobPublishAPIView(APIView):
         with transaction.atomic():
             campus = Campus.objects.filter(name__iexact=campus_name).first()
 
+            # Resolve the department against the canonical six. The stored
+            # name may be an exact canonical name (chosen by the reviewer in
+            # the form) or free text read off a cover page ("DOECE",
+            # "Dept. of Electronics & Computer Engg."), so an exact lookup
+            # is tried first and canonical matching second. No blind
+            # fallback to "the first department in the table": that silently
+            # filed projects under whichever row happened to be first.
             department = None
             if department_name:
                 department = Department.objects.filter(
                     name__iexact=department_name
                 ).first()
 
-                if campus and department is not None and department.campus_id != campus.id:
-                    department = None
-
-                if department is None and campus is not None:
-                    department = Department.objects.filter(
-                        campus=campus,
-                        name__iexact=department_name,
-                    ).first()
-
-            if department is None and campus is not None:
-                department = Department.objects.filter(campus__iexact=campus).first()
-
-            if department is None:
-                department = Department.objects.first()
+                if department is None:
+                    canonical = canonical_department(department_name)
+                    if canonical:
+                        department = Department.objects.filter(
+                            name__iexact=canonical
+                        ).first()
 
             research_group = None
             if research_group_name and department is not None:
@@ -590,6 +626,14 @@ class JobPublishAPIView(APIView):
                     name=research_group_name,
                 ).first()
     
+            # The cluster is a fixed vocabulary; anything outside it is
+            # dropped rather than written, so a hand-edited payload cannot
+            # introduce an arbitrary value.
+            valid_clusters = {choice[0] for choice in Project.CLUSTERS}
+            cluster = (project_fields.get("cluster") or "").strip().upper() or None
+            if cluster not in valid_clusters:
+                cluster = None
+
             project = Project.objects.create(
                 title=title,
                 abstract=abstract,
@@ -597,6 +641,7 @@ class JobPublishAPIView(APIView):
                 project_type=project_type,
                 academic_level=academic_level,
                 batch=batch,
+                cluster=cluster,
                 language=project_fields.get("language") or "English",
                 github_url=github_url,
                 doi_url=project_fields.get("doi_url") or "",
@@ -612,6 +657,35 @@ class JobPublishAPIView(APIView):
             self._create_sections(project, payload.get("project_sections", []))
                
             people = payload.get("people_and_roles") or []
+
+            # A supervisor recorded only under project_fields.supervisors
+            # (some extracted payloads carry it there and not in
+            # people_and_roles) would otherwise never become a
+            # ProjectPerson, and the project would publish with no
+            # supervisor despite one having been found.
+            supervisor_entries = project_fields.get("supervisors") or []
+            known = {
+                str(p.get("full_name") or "").strip().lower()
+                for p in people
+                if str(p.get("role") or "").lower() in self.FACULTY_ROLES
+            }
+            for entry in supervisor_entries:
+                if isinstance(entry, str):
+                    entry = {"full_name": entry}
+                if not isinstance(entry, dict):
+                    continue
+                name = str(entry.get("full_name") or "").strip()
+                if not name or name.lower() in known:
+                    continue
+                known.add(name.lower())
+                people.append({
+                    "full_name": name,
+                    "title": entry.get("title") or "",
+                    "designation": entry.get("designation") or "",
+                    "role": entry.get("role") or "Supervisor",
+                    "academic_level": "Faculty",
+                    "display_order": len(people) + 1,
+                })
         
             for person_data in people:
                 raw_full_name = (person_data.get("full_name") or "").strip()
@@ -742,6 +816,8 @@ class JobPublishAPIView(APIView):
                     f"Status set to {new_status}."
                 ),
             )
+
+            NotificationService.notify_job_published(job, project)
     
         return success_response(
             data={

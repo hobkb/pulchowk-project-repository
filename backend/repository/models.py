@@ -5,6 +5,20 @@ from organization.models import Department, ResearchGroup
 from ingestion.pipeline.utils.text_cleaners import normalize_canonical_section, normalize_person_name, normalize_section_title
 
 class Project(models.Model):
+    # The department's research clusters. A fixed, validated vocabulary --
+    # kept as choices on the project rather than as free-text Domain rows,
+    # because only these seven values are ever valid and the API must be
+    # able to reject anything else.
+    CLUSTERS = [
+        ("AIML", "AIML"),
+        ("ANLP", "ANLP"),
+        ("NTS", "NTS"),
+        ("EII", "EII"),
+        ("EDMES", "EDMES"),
+        ("ACOM", "ACOM"),
+        ("IPCV", "IPCV"),
+    ]
+
     PROJECT_TYPES = [
         ("Major", "Major"),
         ("Minor", "Minor"),
@@ -32,6 +46,11 @@ class Project(models.Model):
     project_type = models.CharField(max_length=30, choices=PROJECT_TYPES)
     academic_level = models.CharField(max_length=20, choices=ACADEMIC_LEVELS)
     batch = models.CharField(max_length=20, blank=True, null=True)
+    # Nullable so every project that predates this field stays valid; the
+    # migration adds it without touching existing rows.
+    cluster = models.CharField(
+        max_length=10, choices=CLUSTERS, blank=True, null=True, db_index=True
+    )
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default="Processing")
     language = models.CharField(max_length=50, default="English")
     thumbnail = models.ImageField(upload_to="thumbnails/",blank=True,null=True,)
@@ -197,3 +216,64 @@ class Bookmark(models.Model):
                     name="unique_project_bookmark",
                     )
                 ]
+
+
+class ProjectAccessRequest(models.Model):
+    """
+    A reader asking the department for the full report of one project.
+
+    Handled entirely inside the application rather than by email: an
+    approval has to actually unlock the PDF for that reader, which a mail
+    thread cannot do, and the requester sees the decision the moment it is
+    made through the existing notification system.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        APPROVED = "APPROVED", "Approved"
+        DECLINED = "DECLINED", "Declined"
+
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="access_requests"
+    )
+    requester = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="project_access_requests",
+    )
+    reason = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING, db_index=True
+    )
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="decided_access_requests",
+    )
+    decision_note = models.TextField(blank=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "project_access_requests"
+        ordering = ["-created_at"]
+        constraints = [
+            # One live request per person per project: re-asking while a
+            # request is still open would just spam the reviewers, and
+            # re-asking after approval is pointless.
+            models.UniqueConstraint(
+                fields=["project", "requester"],
+                condition=models.Q(status__in=["PENDING", "APPROVED"]),
+                name="unique_open_project_access_request",
+            )
+        ]
+
+    def __str__(self):
+        return f"AccessRequest({self.id}, project={self.project_id}, {self.status})"
+
+    @property
+    def is_granted(self):
+        return self.status == self.Status.APPROVED

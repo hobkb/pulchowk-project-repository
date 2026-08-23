@@ -25,6 +25,7 @@ urlpatterns = [
     path('api/ingestion/', include("ingestion.urls")),
     path('api/organization/', include("organization.urls")),
     path('api/repository/', include("repository.urls")),
+    path('api/notifications/', include("notifications.urls")),
 ]
 
 if settings.DEBUG:

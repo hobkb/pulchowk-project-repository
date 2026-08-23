@@ -1,5 +1,10 @@
 from django.urls import path
 from . import views
+from .role_views import (
+    MyRoleRequestView,
+    RoleRequestDecisionView,
+    RoleRequestQueueView,
+)
 
 app_name = "acocunts_apis"
 urlpatterns = [
@@ -12,4 +17,11 @@ urlpatterns = [
     path("logout/", views.LogoutAPIView.as_view(), name='logout'),
     path("token/refresh/", views.RefreshTokenAPIView.as_view(), name='token_refresh'),
     path("me/", views.CurrentUserView.as_view(), name='fetch_user'),
+    path("role-requests/", RoleRequestQueueView.as_view(), name="role-request-queue"),
+    path("role-requests/mine/", MyRoleRequestView.as_view(), name="role-request-mine"),
+    path(
+        "role-requests/<int:request_id>/<str:decision>/",
+        RoleRequestDecisionView.as_view(),
+        name="role-request-decision",
+    ),
 ]

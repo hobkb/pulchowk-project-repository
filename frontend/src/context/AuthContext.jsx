@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { authApi, getCurrentUserWithRefresh } from "../api/client";
+import { authApi, getCurrentUserWithRefresh, setOnSessionExpired } from "../api/client";
 
 const AuthContext = createContext(null);
 
@@ -19,6 +19,18 @@ export function AuthProvider({ children }) {
         }
       })
       .catch(() => setStatus("anonymous"));
+  }, []);
+
+  // If a token refresh ever fails mid-session (e.g. the refresh token
+  // itself has expired), any in-flight authenticated request reports it
+  // here so the app drops back to signed-out instead of leaving the user
+  // stuck on a page whose requests will keep failing.
+  useEffect(() => {
+    setOnSessionExpired(() => {
+      setUser(null);
+      setStatus("anonymous");
+    });
+    return () => setOnSessionExpired(null);
   }, []);
 
   const loginWithGoogle = useCallback(async (idToken) => {

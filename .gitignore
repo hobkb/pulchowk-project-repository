@@ -16,9 +16,14 @@ venv/
 .venv/
 backend/venv/
 
-# Environment Variables
+# Environment Variables -- never commit real secrets.
 .env
 .env.*
+# ...but the templates that document which variables are needed SHOULD be
+# committed, so a fresh clone knows what to fill in.
+!.env.example
+!backend/.env.example
+!frontend/.env.example
 
 # Django
 backend/media/*
@@ -26,6 +31,10 @@ backend/media/ingestion_pdfs/*.pdf
 !backend/media/.gitkeep
 backend/staticfiles/
 db.sqlite3
+
+# Local ingestion QA scratch space (confidential extracted content -- both
+# the source PDFs and the debug JSON they extract to)
+backend/local_ingestion_test/
 
 # Logs
 *.log
@@ -61,8 +70,17 @@ checkpoints/
 *.bak
 *.swp
 
+# VS Code "Local History" -- keeps timestamped copies of every edited file,
+# INCLUDING .env, so committing it would publish secrets that .env itself
+# correctly keeps out.
+.history/
+
+# Vite dependency cache (can appear outside frontend/ if a dev server is
+# started from another directory).
+.vite/
+**/.vite/
+
 *.pdf
-*.md
 
 client_secret_90557791507-la7kep1csa0kgkb6cj2a3f1100sggsnk.apps.googleusercontent.com.json
 

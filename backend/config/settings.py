@@ -46,7 +46,14 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
-
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
 # Application definition
 
 INSTALLED_APPS = [
@@ -66,6 +73,7 @@ INSTALLED_APPS = [
     "repository",
     "organization",
     "ingestion",
+    "notifications",
     'rest_framework_simplejwt',
 ]
 
@@ -101,7 +109,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-
+# Sign-in is restricted to campus accounts. Extra domains can be allowed
+# per-environment for local testing; production leaves this unset.
+ALLOWED_LOGIN_DOMAINS = tuple(
+    d.strip().lower()
+    for d in os.getenv("ALLOWED_LOGIN_DOMAINS", "pcampus.edu.np").split(",")
+    if d.strip()
+)
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 

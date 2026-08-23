@@ -1,76 +1,139 @@
-import { useState, useRef, useEffect } from "react";
-import { useAuth } from "../context/AuthContext";
+import { useEffect, useRef, useState } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faMagnifyingGlass, faRightFromBracket, faUserCircle, faChevronDown, faBell, faChartSimple } from "@fortawesome/free-solid-svg-icons";
+import {
+  faBars,
+  faChevronDown,
+  faRightFromBracket,
+} from "@fortawesome/free-solid-svg-icons";
+import { useAuth } from "../context/AuthContext";
 import tuLogo from "../assets/tu.png";
-import { useNavigate } from "react-router-dom";
-import { NavLink } from "react-router-dom";
-import SearchBar from "./SearchBar";
+import NotificationBell from "./NotificationBell";
+import { PRIMARY_NAV, adminNavFor, isAdminUser } from "../lib/nav";
 
-function UserMenu({ user, onLogout, navigate }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const menuRef = useRef(null);
-  const triggerRef = useRef(null);
+/**
+ * The repository header.
+ *
+ * A single white bar carrying the crest and wordmark on the left, the
+ * primary sections in the middle, and account controls on the right —
+ * closed by the institutional rule (accent over primary). This is the
+ * masthead pattern academic repositories use, but the identity, the
+ * wordmark lockup and the section names are Pulchowk's own.
+ *
+ * Primary navigation lives here rather than in a left sidebar: a
+ * repository has few top-level sections, and putting them across the top
+ * gives the catalogue the full width of the page.
+ */
+
+function roleTitle(user) {
+  if (user?.is_superuser || user?.role === "admin" || user?.is_staff) return "Administrator";
+  if (user?.is_department_admin) return "Department administrator";
+  if (user?.role === "faculty") return "Faculty";
+  if (user?.role === "student") return "Student";
+  return "Reader";
+}
+
+function displayName(user) {
+  const name = [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim();
+  if (name) return name;
+  return user?.profile?.full_name || user?.email || "Account";
+}
+
+function TopLink({ to, label, end, onNavigate }) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      onClick={onNavigate}
+      className={({ isActive }) =>
+        [
+          // The current section is marked by an accent underline, not a
+          // filled pill — restrained, and it keeps the bar quiet.
+          "relative whitespace-nowrap px-3 py-4 text-sm font-bold transition-colors no-underline hover:no-underline",
+          isActive
+            ? "text-nav after:absolute after:inset-x-2 after:bottom-0 after:h-[3px] after:bg-accent"
+            : "text-nav/70 hover:text-nav",
+        ].join(" ")
+      }
+    >
+      {label}
+    </NavLink>
+  );
+}
+
+function AccountMenu({ user, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
 
   useEffect(() => {
-    function handleClickOutside(event) {
-      if (menuRef.current && !menuRef.current.contains(event.target) && !triggerRef.current?.contains(event.target)) {
-        setIsOpen(false);
-      }
+    if (!open) return undefined;
+    function onPointerDown(event) {
+      if (!wrapRef.current?.contains(event.target)) setOpen(false);
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const fullName = user?.first_name ? `${user.first_name} ${user.last_name || ""}` : user?.email;
-  const roleLabel = user?.role === "admin" || user?.is_superuser ? "Administrator" : user?.is_department_admin ? "Department Admin" : "General User";
+    function onKeyDown(event) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
 
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative" ref={wrapRef}>
       <button
-        ref={triggerRef}
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-3 border-l border-border-subtle pl-4 pr-2 py-1.5 rounded-md hover:bg-surface-hover transition-colors cursor-pointer"
-        aria-expanded={isOpen}
-        aria-haspopup="true"
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-ink-2 hover:bg-band hover:text-ink transition-colors cursor-pointer"
       >
-        <div className="hidden lg:flex flex-col text-right">
-          <span className="text-body font-medium text-text-primary">{fullName}</span>
-          <span className="text-body-sm font-mono text-text-tertiary">{user?.email}</span>
-        </div>
-        <FontAwesomeIcon icon={faUserCircle} className="h-5 w-5 text-text-secondary shrink-0" aria-hidden="true" />
+        <span
+          aria-hidden="true"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-primary text-xs font-bold text-white"
+        >
+          {displayName(user).slice(0, 1).toUpperCase()}
+        </span>
+        <span className="hidden lg:inline max-w-[10rem] truncate">{displayName(user)}</span>
+        <FontAwesomeIcon icon={faChevronDown} className="h-3 w-3 shrink-0" aria-hidden="true" />
       </button>
 
-      {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-56 bg-surface-overlay border border-border-default rounded-lg shadow-lg py-1.5 z-50 animate-fade-in">
-          <div className="px-3 py-2.5 border-b border-border-subtle">
-            <p className="text-body font-medium text-text-primary">{fullName}</p>
-            <p className="text-body-sm font-mono text-text-tertiary truncate">{user?.email}</p>
-            <p className="text-micro font-medium text-text-tertiary mt-1">{roleLabel}</p>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-50 mt-1 w-60 rounded-md border border-line bg-white shadow-pop pop-in"
+        >
+          <div className="border-b border-line bg-band px-4 py-3 rounded-t-md">
+            <p className="text-sm font-semibold text-ink truncate">{displayName(user)}</p>
+            <p className="text-xs text-ink-2 truncate">{user?.email}</p>
+            <p className="text-xs text-ink-3 mt-1">{roleTitle(user)}</p>
           </div>
           <NavLink
-            to="/profile"
-            onClick={() => setIsOpen(false)}
-            className="flex items-center gap-3 px-3 py-2 text-body text-text-secondary hover:text-text-primary hover:bg-surface-hover cursor-pointer"
+            to="/settings"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="block px-4 py-2 text-sm text-ink-2 no-underline hover:bg-band hover:text-ink hover:no-underline"
           >
-            <FontAwesomeIcon icon={faUserCircle} className="h-4 w-4" />
-            Profile
+            Account
           </NavLink>
           <NavLink
-            to="/settings"
-            onClick={() => setIsOpen(false)}
-            className="flex items-center gap-3 px-3 py-2 text-body text-text-secondary hover:text-text-primary hover:bg-surface-hover cursor-pointer"
+            to="/notifications"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="block px-4 py-2 text-sm text-ink-2 no-underline hover:bg-band hover:text-ink hover:no-underline"
           >
-            <FontAwesomeIcon icon={faChartSimple} className="h-4 w-4" />
-            Settings
+            Notifications
           </NavLink>
-          <div className="border-t border-border-subtle my-1.5" />
           <button
+            type="button"
+            role="menuitem"
             onClick={onLogout}
-            className="flex items-center gap-3 w-full px-3 py-2 text-body text-error-red hover:bg-surface-hover cursor-pointer"
+            className="flex w-full items-center gap-2 border-t border-line px-4 py-2 text-sm text-err hover:bg-err-bg transition-colors cursor-pointer rounded-b-md"
           >
-            <FontAwesomeIcon icon={faRightFromBracket} className="h-4 w-4" />
-            Log out
+            <FontAwesomeIcon icon={faRightFromBracket} className="h-3.5 w-3.5" aria-hidden="true" />
+            Sign out
           </button>
         </div>
       )}
@@ -78,59 +141,56 @@ function UserMenu({ user, onLogout, navigate }) {
   );
 }
 
-export default function Navbar({ onToggleSidebar }) {
+export default function Navbar({ onToggleMenu }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const isAdmin = user?.role === "admin" || user?.is_staff || user?.is_superuser || user?.is_department_admin;
-  const [searchQuery, setSearchQuery] = useState("");
+  const isAdmin = isAdminUser(user);
 
-  const handleLogout = async () => {
+  async function handleLogout() {
     await logout();
     navigate("/");
-  };
+  }
 
   return (
-    <nav className="h-16 sticky top-0 z-40 bg-surface-raised border-b border-border-subtle flex items-center px-6 gap-4">
-      {/* Left: Brand Section - fixed width */}
-      <div className="flex items-center gap-3 shrink-0">
-        <button
-          onClick={onToggleSidebar}
-          className="lg:hidden p-1.5 rounded-md hover:bg-surface-hover border border-border-subtle text-text-secondary hover:text-text-primary transition-colors"
-          aria-label="Toggle menu"
+    <header className="sticky top-0 z-40 bg-white">
+      <div className="mx-auto flex max-w-[1180px] items-stretch gap-2 px-5 sm:px-8">
+        <NavLink
+          to="/dashboard"
+          className="flex items-center gap-3 py-3 shrink-0 no-underline hover:no-underline"
         >
-          <FontAwesomeIcon icon={faChartSimple} className="h-5 w-5" />
-        </button>
-        <NavLink to="/dashboard" className="flex items-center gap-2.5">
-          <img src={tuLogo} alt="TU Logo" className="h-7 w-7 object-contain" />
-          <span className="font-semibold text-text-primary text-sm tracking-tight hidden sm:inline">
-            Pulchowk Project Repository
+          <img src={tuLogo} alt="" aria-hidden="true" className="h-10 w-10 shrink-0 object-contain" />
+          <span className="min-w-0 leading-tight">
+            <span className="block text-base font-bold text-nav">Pulchowk Project Repository</span>
+            <span className="hidden text-xs font-bold text-accent sm:block">
+              Institute of Engineering, Tribhuvan University
+            </span>
           </span>
         </NavLink>
-      </div>
 
-      {/* Center: Search Bar - constrained max-width, centered */}
-      <div className="flex-1 flex justify-center min-w-0">
-        <SearchBar
-          variant="hero"
-          placeholder="Search projects by topic, technology, or keyword..."
-          value={searchQuery}
-          onChange={setSearchQuery}
-          className="w-full max-w-[680px]"
-        />
-      </div>
-      {/* Right: User Controls - fixed width */}
-      <div className="flex items-center gap-4 shrink-0">
-        {/* Admin Notifications Bell */}
-        {isAdmin && (
-          <button className="relative p-1.5 rounded-md hover:bg-surface-hover text-text-secondary hover:text-text-primary transition-colors cursor-pointer">
-            <FontAwesomeIcon icon={faBell} className="h-4 w-4" />
-            <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-warning-amber" />
+        <nav aria-label="Primary" className="ml-5 hidden items-stretch xl:flex">
+          {PRIMARY_NAV.map((item) => (
+            <TopLink key={item.to} {...item} />
+          ))}
+          {isAdmin &&
+            adminNavFor(user).map((item) => <TopLink key={item.to} {...item} />)}
+        </nav>
+
+        <div className="ml-auto flex items-center gap-1 shrink-0">
+          <NotificationBell />
+          <AccountMenu user={user} onLogout={handleLogout} />
+          <button
+            type="button"
+            onClick={onToggleMenu}
+            aria-label="Open menu"
+            className="ml-1 rounded-sm p-2 text-ink-2 transition-colors hover:bg-band hover:text-ink cursor-pointer xl:hidden"
+          >
+            <FontAwesomeIcon icon={faBars} className="h-4 w-4" />
           </button>
-        )}
-
-        {/* User Menu - username → email → user icon, NO role pill in navbar */}
-        <UserMenu user={user} onLogout={handleLogout} navigate={navigate} />
+        </div>
       </div>
-    </nav>
+
+      {/* The institutional rule: accent over primary. Used once, here. */}
+      <div className="identity-rule h-1" aria-hidden="true" />
+    </header>
   );
 }
