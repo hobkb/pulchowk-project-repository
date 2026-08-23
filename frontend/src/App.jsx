@@ -1,7 +1,9 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
+import DashboardHome from "./pages/DashboardHome";
 import ProjectDetails from "./pages/ProjectDetails";
+import Profile from "./pages/Profile";
 import AdminUpload from "./pages/AdminUpload";
 import PendingApprovals from "./pages/PendingApprovals";
 import IngestionWorkflow from "./pages/IngestionWorkflow";
@@ -64,6 +66,16 @@ export default function App() {
           element={
             <RequireAuth>
               <DashboardLayout>
+                <DashboardHome />
+              </DashboardLayout>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/projects"
+          element={
+            <RequireAuth>
+              <DashboardLayout>
                 <Dashboard />
               </DashboardLayout>
             </RequireAuth>
@@ -75,6 +87,16 @@ export default function App() {
             <RequireAuth>
               <DashboardLayout>
                 <ProjectDetails />
+              </DashboardLayout>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <RequireAuth>
+              <DashboardLayout>
+                <Profile />
               </DashboardLayout>
             </RequireAuth>
           }
