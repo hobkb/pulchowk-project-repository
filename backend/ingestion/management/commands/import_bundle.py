@@ -460,8 +460,18 @@ class Command(BaseCommand):
             if existing is not None:
                 return existing
 
-        user, _ = User.objects.get_or_create(
+        user, created = User.objects.get_or_create(
             email="bundle-merge@local.invalid",
             defaults={"first_name": "Bundle", "last_name": "Merge"},
         )
+        if created:
+            # A placeholder record-owner, not a real account -- matching
+            # how every other system-style user in this codebase is
+            # created (see UserService.get_or_create_google_user). Sign-in
+            # here is exclusively Google OAuth, so this was never
+            # reachable through normal use, but an account with no
+            # password explicitly disabled is one fewer thing to reason
+            # about later.
+            user.set_unusable_password()
+            user.save(update_fields=["password"])
         return user
