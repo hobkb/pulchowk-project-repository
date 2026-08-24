@@ -183,6 +183,38 @@ class ProjectReferenceSerializer(serializers.ModelSerializer):
         fields = ["title", "citation", "url"]
 
 
+def _strip_redundant_rank(title, designation):
+    """Removes a rank the Title field duplicates from the Designation field.
+
+    The Title box is meant for an honorific ("Dr.", "Er."), but nothing
+    stops someone typing the whole academic rank into it too ("Prof.Dr."),
+    which duplicates the abbreviation the Designation field already
+    supplies and renders as "Prof. Prof. Dr. Name". Comparison ignores
+    spacing and punctuation so "Prof.Dr.", "Prof. Dr." and "PROF. DR." are
+    all recognised as carrying the same rank as designation="Professor".
+
+    Only strips a MATCHING LEADING rank -- an honorific written before the
+    rank ("Dr. Prof. Name") is left alone, as is any title when no
+    designation is on record to be redundant with.
+    """
+    if not designation or not title:
+        return title
+
+    normalize = lambda text: re.sub(r"[.\s]+", "", text).lower()
+    prefix = normalize(designation)
+    if not prefix or not normalize(title).startswith(prefix):
+        return title
+
+    consumed, cut = 0, 0
+    for index, char in enumerate(title):
+        if char.isalpha():
+            consumed += 1
+        cut = index + 1
+        if consumed >= len(prefix):
+            break
+    return title[cut:].lstrip(" .")
+
+
 class ProjectListSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(read_only=True)
     authors = serializers.SerializerMethodField()
@@ -270,7 +302,7 @@ class ProjectListSerializer(serializers.ModelSerializer):
                     faculty.designation,
                     faculty.designation or ""
                 )
-                title = faculty.title or ""
+                title = _strip_redundant_rank(faculty.title or "", designation)
 
             parts = [designation, title, person.full_name]
             supervisors.append(" ".join(part for part in parts if part).strip())

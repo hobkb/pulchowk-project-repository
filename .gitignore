@@ -101,3 +101,10 @@ skills-lock.json
 
 .claude
 .agents
+# Ingestion merge bundles -- exported via export_bundle, exchanged between
+# teammates outside git, and merged with import_bundle. Contains real
+# project titles, abstracts, section text and source PDFs, so it must
+# never be committed regardless of where it's created or unzipped.
+bundle-*/
+bundle-*.zip
+*.bundle.zip

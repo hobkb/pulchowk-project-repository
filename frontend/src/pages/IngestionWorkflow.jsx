@@ -185,6 +185,17 @@ function Spinner({ className = "" }) {
   );
 }
 
+let sectionClientIdCounter = 0;
+
+/** A client-only id, never sent to the server, used purely to find the
+ *  card just added and scroll to it -- the tree has no other stable
+ *  identity to key off, since ids only exist once the server has assigned
+ *  one and a freshly added section has not been saved yet. */
+function nextSectionClientId() {
+  sectionClientIdCounter += 1;
+  return `new-${sectionClientIdCounter}`;
+}
+
 function newSectionNode(overrides = {}) {
   return {
     heading: "New Section",
@@ -196,6 +207,7 @@ function newSectionNode(overrides = {}) {
     page_end: 1,
     word_count: 0,
     children: [],
+    _clientId: nextSectionClientId(),
     ...overrides,
   };
 }
@@ -250,21 +262,29 @@ function moveAtPath(tree, path, direction) {
 function addChildAtPath(tree, path) {
   // path === null means "add a new root-level section".
   if (path == null) {
-    return renumber([...tree, newSectionNode({ display_order: tree.length + 1 })]);
+    const created = newSectionNode({ display_order: tree.length + 1 });
+    return [renumber([...tree, created]), created._clientId];
   }
   if (path.length === 1) {
-    return tree.map((node, i) => {
+    let newId = null;
+    const next = tree.map((node, i) => {
       if (i !== path[0]) return node;
       const children = node.children || [];
-      return { ...node, children: renumber([...children, newSectionNode({ heading_level: (node.heading_level || 1) + 1 })]) };
+      const created = newSectionNode({ heading_level: (node.heading_level || 1) + 1 });
+      newId = created._clientId;
+      return { ...node, children: renumber([...children, created]) };
     });
+    return [next, newId];
   }
   const [head, ...rest] = path;
-  return tree.map((node, i) =>
-    i === head
-      ? { ...node, children: addChildAtPath(node.children || [], rest) }
-      : node
-  );
+  let newId = null;
+  const next = tree.map((node, i) => {
+    if (i !== head) return node;
+    const [children, id] = addChildAtPath(node.children || [], rest);
+    newId = id;
+    return { ...node, children };
+  });
+  return [next, newId];
 }
 
 /** Flattens the tree into a display list for the review-step summary,
@@ -329,6 +349,7 @@ function SectionEditorRow({ node, path, isFirst, isLast, depth, onChange, onMove
     // Root: a card. Nested: no card at all — just the indent and the rule,
     // so the subtree stays visually inside its parent.
     <div
+      data-section-id={node._clientId}
       className={
         isRoot
           ? "shrink-0 overflow-hidden rounded-md border border-line-strong bg-white"
@@ -626,6 +647,24 @@ export default function IngestionWorkflow() {
   const [authors, setAuthors] = useState([]);
   const [keywords, setKeywords] = useState([]);
   const [sections, setSections] = useState([]);
+  // The id of a section just added, so the page can scroll to it once it
+  // renders. A long report can have dozens of sections and subsections;
+  // without this, adding one appended it to the bottom of a tree the
+  // reviewer had to scroll all the way down to find every time.
+  const [pendingScrollId, setPendingScrollId] = useState(null);
+
+  useEffect(() => {
+    if (!pendingScrollId) return;
+    const frame = requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-section-id="${pendingScrollId}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.querySelector("input, textarea")?.focus({ preventScroll: true });
+      }
+      setPendingScrollId(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pendingScrollId, sections]);
   const [skipSections, setSkipSections] = useState(false);
 
   // Add Faculty Modal State
@@ -951,11 +990,19 @@ export default function IngestionWorkflow() {
   // so subsections at any depth get the exact same add/move/delete/edit
   // capability as top-level sections -- see the tree helpers above.
   const handleAddSection = () => {
-    setSections((prev) => addChildAtPath(prev, null));
+    setSections((prev) => {
+      const [next, newId] = addChildAtPath(prev, null);
+      setPendingScrollId(newId);
+      return next;
+    });
   };
 
   const handleAddSubsection = (path) => {
-    setSections((prev) => addChildAtPath(prev, path));
+    setSections((prev) => {
+      const [next, newId] = addChildAtPath(prev, path);
+      setPendingScrollId(newId);
+      return next;
+    });
   };
 
   const handleSectionChange = (path, field, value) => {

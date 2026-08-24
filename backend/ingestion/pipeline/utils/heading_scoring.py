@@ -61,6 +61,44 @@ _DIGIT_WORD_FUSION = re.compile(r"\b\d+[A-Za-z]{2,}\b")
 _FUNCTION_CALL = re.compile(r"[A-Za-z]{1,6}\s*\([^)]*$|[A-Za-z]{1,6}\s*\(.*[,;].*\)")
 
 
+# Preliminary-pages index titles -- "List of Figures", "Table of Contents",
+# "List of Abbreviations" and their common variants. These are navigation
+# aids, not chapters: they carry no body content of their own, and the
+# document's own numbering never runs through them the way it does through
+# real chapters. Rejected here, ahead of scoring, so one is never accepted
+# as a section no matter which page it lands on or how strongly it happens
+# to score on numbering/boldness/font size -- the same "must never become a
+# section regardless of styling" guarantee looks_like_artifact gives
+# formula fragments.
+_FRONT_MATTER_INDEX = re.compile(
+    r"^(?:list\s+of\s+)?"
+    r"(?:figures?|tables?|abbreviations?|acronyms?|symbols?|charts?|"
+    r"illustrations?|plates?|equations?|maps?|appendices|annexures?)"
+    r"(?:\s*(?:and|&|,)\s*(?:figures?|tables?|abbreviations?|acronyms?|"
+    r"symbols?|charts?|illustrations?|plates?|equations?|maps?))?"
+    r"\s*:?\s*$"
+    r"|^(?:table\s+of\s+)?contents?\s*:?\s*$"
+    r"|^index\s*:?\s*$",
+    re.IGNORECASE,
+)
+
+
+def looks_like_front_matter_index(text: str) -> bool:
+    """True for a preliminary-pages index title such as "List of Figures"
+    or "List of Tables", including combined forms like "List of Figures
+    and Tables". Numbering ("List of Figures ... iii") and a trailing page
+    number/dot-leader are stripped before matching, since a title glued to
+    its own page reference at extraction time must not slip past a check
+    anchored to the start and end of the line."""
+    stripped = normalize_line(text).strip()
+    if not stripped:
+        return False
+    # Drop a trailing dot-leader/page-number tail ("....... iii",
+    # ".......12") so the title underneath it still matches.
+    stripped = re.sub(r"[.…\s]{2,}(?:[ivxlcdm]+|\d+)\s*$", "", stripped, flags=re.IGNORECASE).strip()
+    return bool(_FRONT_MATTER_INDEX.match(stripped))
+
+
 def looks_like_artifact(text: str) -> bool:
     """True when a line is a formula fragment, an equation number, an OCR
     tear, or an isolated symbol rather than anything a human wrote as a
@@ -201,12 +239,25 @@ def score_heading_candidate(line: dict, body_font_size: float) -> "HeadingCandid
     if looks_like_artifact(raw_text):
         return None
 
+    # Same guarantee for a preliminary-pages index title ("List of
+    # Figures", "List of Tables"). These normally never reach here at all
+    # -- page classification routes them to their own page type before the
+    # section builder ever sees them -- but a report that runs its list of
+    # figures onto the same page as real chapter content, or phrases the
+    # title in a way page classification does not recognise, must still
+    # not get a "List of Figures" card in the published document.
+    if looks_like_front_matter_index(raw_text):
+        return None
+
     numbering, remainder = parse_numbering(raw_text)
     remainder = remainder.strip() if remainder else ""
     if not remainder:
         return None
 
     if looks_like_artifact(remainder):
+        return None
+
+    if looks_like_front_matter_index(remainder):
         return None
 
     shape_ok = looks_like_heading(remainder)
