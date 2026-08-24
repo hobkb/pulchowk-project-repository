@@ -98,9 +98,18 @@ export function NotificationsProvider({ children }) {
     }
   }, [refreshUnreadCount]);
 
+  /** Permanently deletes every notification. Nothing is left to be
+   *  unread, so the badge goes straight to zero rather than waiting on
+   *  the next poll. */
+  const clearAll = useCallback(async () => {
+    const body = await notificationsApi.clearAll();
+    setUnreadCount(0);
+    return body?.data?.deleted ?? 0;
+  }, []);
+
   const value = useMemo(
-    () => ({ unreadCount, countError, refreshUnreadCount, markRead, markAllRead }),
-    [unreadCount, countError, refreshUnreadCount, markRead, markAllRead]
+    () => ({ unreadCount, countError, refreshUnreadCount, markRead, markAllRead, clearAll }),
+    [unreadCount, countError, refreshUnreadCount, markRead, markAllRead, clearAll]
   );
 
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>;

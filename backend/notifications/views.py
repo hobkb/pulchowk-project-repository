@@ -52,6 +52,23 @@ class NotificationMarkAllReadAPIView(APIView):
         )
 
 
+class NotificationClearAllAPIView(APIView):
+    """Deletes every notification the signed-in user has, permanently.
+
+    Scoped to request.user throughout -- deleting is a queryset filtered
+    by recipient, never a bare Notification.objects.all(), so this can
+    only ever remove the requester's own notifications."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request):
+        deleted, _ = request.user.notifications.all().delete()
+        return success_response(
+            data={"deleted": deleted},
+            message="Notifications cleared." if deleted else "Nothing to clear.",
+        )
+
+
 class NotificationUnreadCountAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 

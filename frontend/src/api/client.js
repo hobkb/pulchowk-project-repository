@@ -56,13 +56,34 @@ async function request(path, options={}, isRetry=false)
     const body = await res.json().catch(() => null);
     if(!res.ok)
     {
-        const errMessage = body?.message || (typeof body?.detail === "string" ? body.detail : JSON.stringify(body?.detail || body?.errors || "Request failed"));
-        const err = new Error(errMessage);
+        const err = new Error(errorMessageFrom(body));
         err.status = res.status;
         err.data = body;
         throw err;
     }
     return body;
+}
+
+/**
+ * The backend's custom exception handler wraps every validation failure as
+ * { message: "Validation failed.", errors: { field: ["reason", ...] } } --
+ * the same generic "message" for every field, with the actually useful
+ * per-field reason sitting in "errors". Reading only "message" (the
+ * previous behaviour here) meant a 400 always displayed as the same
+ * uninformative "Validation failed." regardless of which field caused it
+ * or why, in both the on-screen error and the browser console.
+ */
+function errorMessageFrom(body) {
+    if (body?.errors && typeof body.errors === "object") {
+        const parts = Object.entries(body.errors).map(([field, reasons]) => {
+            const text = Array.isArray(reasons) ? reasons.join(" ") : String(reasons);
+            return `${field}: ${text}`;
+        });
+        if (parts.length) return parts.join(" · ");
+    }
+    if (typeof body?.detail === "string") return body.detail;
+    if (body?.message) return body.message;
+    return "Request failed.";
 }
 
 
@@ -190,6 +211,8 @@ export const notificationsApi = {
     unreadCount: () => request("notifications/unread-count/", {method: "GET"}),
     markRead: (id) => request(`notifications/${id}/read/`, {method: "POST"}),
     markAllRead: () => request("notifications/read-all/", {method: "POST"}),
+    // Permanently deletes every notification the signed-in user has.
+    clearAll: () => request("notifications/clear-all/", {method: "DELETE"}),
 };
 
 export const ingestionApi = {

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { faBell } from "@fortawesome/free-solid-svg-icons";
+import { faBell, faSpinner, faTrash } from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { notificationsApi } from "../api/client";
+import { useToast } from "../context/ToastContext";
 import {
   notificationLabel,
   notificationTarget,
@@ -14,6 +16,7 @@ import {
   Button,
   Container,
   Crumb,
+  Dialog,
   EmptyState,
   ErrorNotice,
   LoadingRows,
@@ -43,7 +46,10 @@ export default function Notifications() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
-  const { unreadCount, markRead, markAllRead, refreshUnreadCount } = useNotifications();
+  const { unreadCount, markRead, markAllRead, clearAll, refreshUnreadCount } = useNotifications();
+  const { showToast } = useToast();
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const load = useCallback(async (page) => {
     const body = await notificationsApi.list(page ? { page } : {});
@@ -107,6 +113,22 @@ export default function Notifications() {
     await markAllRead();
   }
 
+  async function handleClearAll() {
+    if (clearing) return;
+    setClearing(true);
+    try {
+      await clearAll();
+      setItems([]);
+      setNextPage(null);
+      setConfirmingClear(false);
+      showToast("Notifications cleared.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setClearing(false);
+    }
+  }
+
   return (
     <>
       <Breadcrumb>
@@ -120,11 +142,40 @@ export default function Notifications() {
         <PageHeading
           title="Notifications"
           actions={
-            unreadCount > 0 ? (
-              <Button variant="secondary" size="sm" onClick={handleMarkAllRead}>
-                Mark all as read
+            <div className="flex flex-wrap gap-2">
+              {unreadCount > 0 && (
+                <Button variant="secondary" size="sm" onClick={handleMarkAllRead}>
+                  Mark all as read
+                </Button>
+              )}
+              {items.length > 0 && (
+                <Button variant="subtle" size="sm" onClick={() => setConfirmingClear(true)}>
+                  <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" aria-hidden="true" />
+                  Clear all
+                </Button>
+              )}
+            </div>
+          }
+        />
+
+        <Dialog
+          open={confirmingClear}
+          onClose={() => !clearing && setConfirmingClear(false)}
+          title="Clear all notifications?"
+          description="This permanently deletes every notification you have. It cannot be undone."
+          width="max-w-md"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setConfirmingClear(false)} disabled={clearing}>
+                Cancel
               </Button>
-            ) : null
+              <Button variant="danger" onClick={handleClearAll} disabled={clearing}>
+                {clearing && (
+                  <FontAwesomeIcon icon={faSpinner} className="h-3.5 w-3.5 spin" aria-hidden="true" />
+                )}
+                {clearing ? "Clearing…" : "Clear all"}
+              </Button>
+            </>
           }
         />
 

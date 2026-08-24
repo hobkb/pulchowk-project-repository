@@ -265,8 +265,12 @@ const TONE_DEFS = {
   // Solid fill + white text. No translucent tints and no alpha-blended
   // borders anywhere in the status vocabulary -- a half-transparent chip
   // reads as a placeholder rather than as a designed state.
-  ok:      { solid: "bg-ok text-white",      text: "text-ok",      soft: "bg-ok-050",      icon: faCircleCheck },
-  warn:    { solid: "bg-warn text-white",    text: "text-warn",    soft: "bg-warn-050",    icon: faTriangleExclamation },
+  // ok/warn are now vivid, near-fluorescent brand colors -- white text on
+  // top of them is barely legible, so these two pair with dark ink text
+  // instead while every other tone keeps white (their backgrounds stay
+  // dark enough for it).
+  ok:      { solid: "bg-ok text-ink",        text: "text-ok",      soft: "bg-ok-050",      icon: faCircleCheck },
+  warn:    { solid: "bg-warn text-ink",      text: "text-warn",    soft: "bg-warn-050",    icon: faTriangleExclamation },
   err:     { solid: "bg-err text-white",     text: "text-err",     soft: "bg-err-050",     icon: faCircleExclamation },
   info:    { solid: "bg-info text-white",    text: "text-info",    soft: "bg-info-050",    icon: faCircleInfo },
   neutral: { solid: "bg-neutral text-white", text: "text-neutral", soft: "bg-band",      icon: faCircleInfo },

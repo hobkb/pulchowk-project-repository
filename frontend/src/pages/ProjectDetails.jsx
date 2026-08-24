@@ -17,6 +17,7 @@ import { useAuth } from "../context/AuthContext";
 import { isAdminUser } from "../lib/nav";
 import { RestrictedReport } from "../components/RestrictedReport";
 import { academicLevelLabel, batchLabel } from "../lib/labels";
+import { useToast } from "../context/ToastContext";
 import {
   Alert,
   Breadcrumb,
@@ -122,6 +123,7 @@ function ReportRequestDialog({ open, onClose, project, onSubmitted }) {
  * the source PDF sits alongside it.
  */
 function EditProjectDialog({ open, onClose, project, onSaved }) {
+  const { showToast } = useToast();
   const [form, setForm] = useState(null);
   const [choices, setChoices] = useState({ clusters: [], departments: [] });
   const [saving, setSaving] = useState(false);
@@ -166,6 +168,7 @@ function EditProjectDialog({ open, onClose, project, onSaved }) {
       });
       onSaved?.(body.data);
       onClose();
+      showToast("Project updated.");
     } catch (err) {
       setError(err.message || "The project could not be saved.");
     } finally {
@@ -262,6 +265,7 @@ function EditProjectDialog({ open, onClose, project, onSaved }) {
 
 /** Reviewer-only removal of a catalogue record. */
 function DeleteProjectDialog({ open, onClose, project }) {
+  const { showToast } = useToast();
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
@@ -273,6 +277,7 @@ function DeleteProjectDialog({ open, onClose, project }) {
     try {
       await projectAdminApi.remove(project.id);
       navigate("/projects", { replace: true });
+      showToast("Project deleted.");
     } catch (err) {
       setError(err.message || "The project could not be deleted.");
       setDeleting(false);
