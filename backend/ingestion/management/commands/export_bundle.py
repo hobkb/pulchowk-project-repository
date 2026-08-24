@@ -242,4 +242,9 @@ class Command(BaseCommand):
             "file_hash": job.file_hash,
             "status": job.status,
             "extracted_payload": job.extracted_payload,
+            # Tried first on import so the job attributes to the real
+            # uploader when that person's account also exists on the
+            # merging database; falls back to a dedicated system account
+            # otherwise, since `uploaded_by` is a required field.
+            "uploaded_by_email": job.uploaded_by.email if job.uploaded_by_id else "",
         }

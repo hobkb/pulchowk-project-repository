@@ -23,7 +23,7 @@ from django.core.files import File
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from accounts.models import Faculty, Person, Student
+from accounts.models import Faculty, Person, Student, User
 from ingestion.models import IngestionJob
 from ingestion.pipeline.utils.text_cleaners import clean_roll_number, normalize_person_name
 from organization.departments import canonical_department
@@ -40,6 +40,16 @@ from repository.models import (
 )
 
 from ._bundle import MANIFEST_NAME, PDF_DIR, PROJECT_DIR, normalize_key, project_identity
+
+
+def _safe_constraint_name(exc):
+    """The name of the database constraint an IntegrityError violated, if
+    the driver exposes one -- never the driver's own message, which
+    typically embeds the offending value. Returns None for anything else,
+    including drivers that don't expose diagnostics this way."""
+    cause = getattr(exc, "__cause__", None) or exc
+    diag = getattr(cause, "diag", None)
+    return getattr(diag, "constraint_name", None)
 
 
 class Command(BaseCommand):
@@ -96,9 +106,16 @@ class Command(BaseCommand):
                         transaction.set_rollback(True)
             except Exception as exc:  # noqa: BLE001 -- one bad file must not stop the merge
                 failures += 1
-                # Type only: the message can embed the project's own text.
+                # The exception type, plus -- for a database constraint
+                # violation -- the constraint's own NAME (a schema
+                # identifier such as "ingestion_job_uploaded_by_id_..."),
+                # never its message. The driver's message routinely embeds
+                # the actual colliding value (a person's name, a roll
+                # number), which the constraint name does not.
+                detail = _safe_constraint_name(exc)
+                label = f"{type(exc).__name__} ({detail})" if detail else type(exc).__name__
                 self.stderr.write(
-                    self.style.ERROR(f"  Document #{index}: {type(exc).__name__}")
+                    self.style.ERROR(f"  Document #{index}: {label}")
                 )
                 continue
 
@@ -395,9 +412,37 @@ class Command(BaseCommand):
                 file_hash=job_data.get("file_hash") or "",
                 status=job_data.get("status") or IngestionJob.Status.VERIFIED,
                 extracted_payload=job_data.get("extracted_payload") or {},
+                # `uploaded_by` is required at the database level and was
+                # simply never set here, which raised a NOT-NULL
+                # IntegrityError on every real (non-dry-run) merge that
+                # attached a PDF -- dry runs never reached this far, since
+                # they return above before constructing the job, which is
+                # why the bug only showed up once writes were for real.
+                uploaded_by=self._merge_attributed_user(job_data),
             )
 
         with source.open("rb") as handle:
             job.file.save(name, File(handle), save=False)
         job.save()
         return 1
+
+    def _merge_attributed_user(self, job_data):
+        """Who a merged job is attributed to.
+
+        Tries the original uploader's own account first, in case they also
+        exist on the database being merged into (common once a team shares
+        one master). Falls back to a dedicated system account -- created
+        once, reused every time -- since the field cannot be left empty and
+        there is no guarantee the original uploader has ever signed in
+        here."""
+        email = (job_data.get("uploaded_by_email") or "").strip()
+        if email:
+            existing = User.objects.filter(email__iexact=email).first()
+            if existing is not None:
+                return existing
+
+        user, _ = User.objects.get_or_create(
+            email="bundle-merge@local.invalid",
+            defaults={"first_name": "Bundle", "last_name": "Merge"},
+        )
+        return user

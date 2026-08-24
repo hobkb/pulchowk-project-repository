@@ -12,6 +12,8 @@ import tempfile
 from io import StringIO
 from pathlib import Path
 
+from ingestion.models import IngestionJob
+
 from django.core.management import call_command
 from django.test import TestCase
 
@@ -207,3 +209,93 @@ class BundleMergeTests(TestCase):
 
         self.assertNotIn("Secret Vision System", output)
         self.assertIn("Document #1", output)
+
+
+class RealMergeWithPdfTests(TestCase):
+    """
+    A real (non-dry-run) merge of a bundle whose project carries a source
+    PDF -- the case a dry run structurally can't exercise, since
+    `_attach_pdf` only runs when writes are for real. `uploaded_by` on
+    `IngestionJob` is a required field that construction here previously
+    never set, which passed every dry run cleanly and then raised
+    IntegrityError on every real merge that attached a PDF.
+    """
+
+    def setUp(self):
+        campus = Campus.objects.get_or_create(name="Pulchowk Campus")[0]
+        Department.objects.get_or_create(
+            name="Department of Electronics and Computer Engineering", campus=campus
+        )
+
+    def _bundle_with_pdf(self, directory, *, uploader_email=""):
+        root = Path(directory)
+        (root / "projects").mkdir(parents=True)
+        (root / "pdfs").mkdir(parents=True)
+        (root / "manifest.json").write_text(
+            json.dumps({"bundle_version": 1, "source": "t", "project_count": 1}),
+            encoding="utf-8",
+        )
+        (root / "pdfs" / "project_0001.pdf").write_bytes(b"%PDF-1.4 fake")
+        record = project_record("PDF-carrying project")
+        record["pdf"] = "project_0001.pdf"
+        record["job"] = {
+            "original_filename": "report.pdf", "file_hash": "hash-1",
+            "status": "VERIFIED", "extracted_payload": {},
+            "uploaded_by_email": uploader_email,
+        }
+        (root / "projects" / "project_0001.json").write_text(
+            json.dumps(record), encoding="utf-8"
+        )
+        return root
+
+    def test_a_real_merge_with_a_pdf_does_not_raise(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._bundle_with_pdf(d)
+            out = StringIO()
+            call_command("import_bundle", bundle=d, stdout=out)
+            output = out.getvalue()
+
+        self.assertNotIn("IntegrityError", output)
+        self.assertIn("projects created....: 1", output)
+        job = IngestionJob.objects.get(published_project__title="PDF-carrying project")
+        self.assertTrue(job.file)
+
+    def test_the_attached_job_has_a_valid_owner(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._bundle_with_pdf(d)
+            call_command("import_bundle", bundle=d, stdout=StringIO())
+
+        job = IngestionJob.objects.get(published_project__title="PDF-carrying project")
+        self.assertIsNotNone(job.uploaded_by_id)
+
+    def test_it_prefers_the_original_uploaders_own_account_when_it_exists_here(self):
+        from accounts.models import User
+        uploader = User.objects.create_user(email="original@pcampus.edu.np", password="x")
+
+        with tempfile.TemporaryDirectory() as d:
+            self._bundle_with_pdf(d, uploader_email="original@pcampus.edu.np")
+            call_command("import_bundle", bundle=d, stdout=StringIO())
+
+        job = IngestionJob.objects.get(published_project__title="PDF-carrying project")
+        self.assertEqual(job.uploaded_by_id, uploader.id)
+
+    def test_it_falls_back_to_a_system_account_when_the_uploader_is_unknown_here(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._bundle_with_pdf(d, uploader_email="someone-not-on-this-machine@x.np")
+            call_command("import_bundle", bundle=d, stdout=StringIO())
+
+        job = IngestionJob.objects.get(published_project__title="PDF-carrying project")
+        self.assertEqual(job.uploaded_by.email, "bundle-merge@local.invalid")
+
+    def test_re_merging_the_same_bundle_does_not_recreate_the_job(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._bundle_with_pdf(d)
+            call_command("import_bundle", bundle=d, stdout=StringIO())
+            call_command("import_bundle", bundle=d, stdout=StringIO())
+
+        self.assertEqual(
+            IngestionJob.objects.filter(
+                published_project__title="PDF-carrying project"
+            ).count(),
+            1,
+        )
