@@ -1,6 +1,12 @@
 from django.urls import path
 
-from .views import JobDetailAPIView, JobListCreateAPIView, JobLogsAPIView, JobPublishAPIView
+from .views import (
+    JobDetailAPIView,
+    JobListCreateAPIView,
+    JobLogsAPIView,
+    JobPublishAPIView,
+    LocateHeadingPageAPIView,
+)
 
 
 app_name = "ingestion"
@@ -11,5 +17,10 @@ urlpatterns = [
     path("jobs/<int:job_id>/", JobDetailAPIView.as_view(), name="job-detail"),
     path("jobs/<int:job_id>/logs/", JobLogsAPIView.as_view(), name="job-logs"),
     path("jobs/<int:job_id>/publish/", JobPublishAPIView.as_view(), name="job-publish"),
+    path(
+        "jobs/<int:job_id>/locate-heading/",
+        LocateHeadingPageAPIView.as_view(),
+        name="job-locate-heading",
+    ),
 
 ]

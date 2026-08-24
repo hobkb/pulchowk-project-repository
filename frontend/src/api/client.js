@@ -247,6 +247,13 @@ export const ingestionApi = {
     getJob: (id) => request(`ingestion/jobs/${id}/`, { method: "GET" }),
     patchJobPayload: (id, payload) => request(`ingestion/jobs/${id}/`, { method: "PATCH", body: JSON.stringify(payload) }),
     getJobLogs: (id) => request(`ingestion/jobs/${id}/logs/`, { method: "GET" }),
+    // Looks up which real PDF page a typed heading appears on. Returns
+    // only { page }, never any text from the document.
+    locateHeading: (id, heading) =>
+        request(`ingestion/jobs/${id}/locate-heading/`, {
+            method: "POST",
+            body: JSON.stringify({ heading }),
+        }),
     publishJob: (id) => request(`ingestion/jobs/${id}/publish/`, { method: "POST" }),
 };
 

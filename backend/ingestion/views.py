@@ -38,6 +38,7 @@ from ingestion.pipeline.utils.text_cleaners import (
 )
 
 from core.responses import success_response
+from ingestion.pipeline.utils.heading_locator import locate_heading_page
 from notifications.services import NotificationService
 
 
@@ -297,6 +298,36 @@ class JobLogsAPIView(APIView):
         return success_response(
             data=serializer.data,
             message="Job logs retrieved successfully.",
+        )
+
+
+class LocateHeadingPageAPIView(APIView):
+    """
+    Given a heading typed by hand during review, finds which real page of
+    the source PDF it starts on -- so a reviewer adding "System Design" as
+    a new section doesn't have to hunt for the page number themselves.
+
+    Read-only: PDF text extraction happens fresh against the stored file
+    and nothing about the job is written. The response is a page number
+    (or null) and nothing else -- the matched line of the document is
+    never returned, so this can never leak content through a lookup meant
+    to save a reviewer's time.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, job_id):
+        job = get_job_for_user(job_id, request.user)
+        heading = str(request.data.get("heading") or "").strip()
+        if not heading:
+            raise ValidationError({"heading": "A heading is required."})
+        if not job.file:
+            raise ValidationError({"detail": "This job has no source PDF on record."})
+
+        page = locate_heading_page(job, heading)
+        return success_response(
+            data={"page": page},
+            message="Page located." if page else "No confident match found.",
         )
 
 

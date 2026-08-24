@@ -331,10 +331,42 @@ function serializeSectionTree(nodes) {
  * The same add/move/delete/edit controls work identically at every depth;
  * only the chrome differs.
  */
-function SectionEditorRow({ node, path, isFirst, isLast, depth, onChange, onMove, onDelete, onAddChild }) {
+function SectionEditorRow({ node, path, isFirst, isLast, depth, onChange, onMove, onDelete, onAddChild, jobId }) {
   const numbering = path.map((i) => i + 1).join(".");
   const childCount = (node.children || []).length;
   const [collapsed, setCollapsed] = useState(false);
+  // "Find page" -- looks up which real PDF page this heading starts on,
+  // for a section added by hand rather than extracted (where the page is
+  // already known). Local to this row: two sections locating at once must
+  // not share one loading/result state.
+  const [locating, setLocating] = useState(false);
+  const [locateNote, setLocateNote] = useState(null);
+
+  const handleLocatePage = async () => {
+    if (locating || !jobId || !(node.heading || "").trim()) return;
+    setLocating(true);
+    setLocateNote(null);
+    try {
+      const body = await ingestionApi.locateHeading(jobId, node.heading);
+      const page = body?.data?.page;
+      if (page) {
+        onChange(path, "page_start", page);
+        // A single located line only proves a start page, not a range --
+        // page_end is left as whatever the reviewer already set, or
+        // defaulted to the same page as a starting point to widen.
+        if (!node.page_end || node.page_end === node.page_start) {
+          onChange(path, "page_end", page);
+        }
+      } else {
+        setLocateNote("No confident match found");
+      }
+    } catch (err) {
+      setLocateNote(err.message || "Could not check the PDF");
+    } finally {
+      setLocating(false);
+      setTimeout(() => setLocateNote(null), 3000);
+    }
+  };
   // Most extracted headings already carry their own number ("2 Literature
   // Review"). Showing the derived position beside one of those printed it
   // twice, so the position marker is only rendered when the heading does
@@ -462,6 +494,21 @@ function SectionEditorRow({ node, path, isFirst, isLast, depth, onChange, onMove
                   aria-label={`Subsection ${numbering} page end`}
                   className={`${FIELD_INPUT} tnum w-16 px-2 py-1`}
                 />
+                {jobId && (
+                  <button
+                    type="button"
+                    onClick={handleLocatePage}
+                    disabled={locating || !(node.heading || "").trim()}
+                    title="Find this heading in the source PDF"
+                    className="flex items-center gap-1 rounded-sm border border-line px-1.5 py-1 text-ink-3 hover:border-primary hover:text-primary disabled:opacity-40 disabled:hover:border-line disabled:hover:text-ink-3 cursor-pointer transition-colors"
+                  >
+                    <FontAwesomeIcon
+                      icon={locating ? faSpinner : faSearch}
+                      className={`h-3 w-3 ${locating ? "spin" : ""}`}
+                    />
+                  </button>
+                )}
+                {locateNote && <span className="text-ink-3">{locateNote}</span>}
               </span>
               <span className="tnum text-xs text-ink-3">{wordCount} words</span>
             </div>
@@ -479,7 +526,7 @@ function SectionEditorRow({ node, path, isFirst, isLast, depth, onChange, onMove
         {!collapsed && isRoot && (
         <>
         <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
-          <div className="sm:col-span-6 flex flex-col gap-1.5">
+          <div className="sm:col-span-5 flex flex-col gap-1.5">
             <label className="tnum text-xs text-ink-2">
               Heading title <span className="text-err">*</span>
             </label>
@@ -526,7 +573,29 @@ function SectionEditorRow({ node, path, isFirst, isLast, depth, onChange, onMove
               placeholder="5"
             />
           </div>
+
+          {jobId && (
+            <div className="sm:col-span-1 flex flex-col gap-1.5">
+              <span className="text-xs font-semibold text-transparent select-none">Find</span>
+              <button
+                type="button"
+                onClick={handleLocatePage}
+                disabled={locating || !(node.heading || "").trim()}
+                title="Find this heading in the source PDF and fill the page numbers"
+                aria-label="Find this heading in the source PDF and fill the page numbers"
+                className={`${FIELD_INPUT} flex items-center justify-center text-ink-2 hover:border-primary hover:text-primary disabled:opacity-40 disabled:hover:border-line disabled:hover:text-ink-2 cursor-pointer transition-colors`}
+              >
+                <FontAwesomeIcon
+                  icon={locating ? faSpinner : faSearch}
+                  className={`h-3.5 w-3.5 ${locating ? "spin" : ""}`}
+                />
+              </button>
+            </div>
+          )}
         </div>
+        {locateNote && (
+          <p className="-mt-2 text-xs text-ink-3">{locateNote}</p>
+        )}
 
         <div className="flex flex-col gap-2 pt-1">
           <div className="flex items-center justify-between">
@@ -574,6 +643,7 @@ function SectionEditorRow({ node, path, isFirst, isLast, depth, onChange, onMove
                 onMove={onMove}
                 onDelete={onDelete}
                 onAddChild={onAddChild}
+                jobId={jobId}
               />
             ))}
           </div>
@@ -1811,6 +1881,7 @@ export default function IngestionWorkflow() {
                       onMove={handleMoveSection}
                       onDelete={handleDeleteSection}
                       onAddChild={handleAddSubsection}
+                      jobId={id}
                     />
                   ))}
                 </div>
