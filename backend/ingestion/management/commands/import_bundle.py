@@ -16,6 +16,7 @@ the bundle files.
 """
 
 import json
+import mimetypes
 from pathlib import Path
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -32,6 +33,7 @@ from repository.models import (
     Domain,
     Keyword,
     Project,
+    ProjectAsset,
     ProjectDomain,
     ProjectKeyword,
     ProjectPerson,
@@ -424,6 +426,23 @@ class Command(BaseCommand):
         with source.open("rb") as handle:
             job.file.save(name, File(handle), save=False)
         job.save()
+
+        # The report-access check (get_pdfUrl) does not look at the job at
+        # all -- it looks for a ProjectAsset row of type "Report", exactly
+        # the same as the normal publish flow creates. Without one here, a
+        # privileged reviewer would still see the report as unavailable
+        # after a merge, not because access was denied but because nothing
+        # ever told the catalogue a report existed.
+        if not project.assets.filter(asset_type="Report").exists():
+            mime_type, _ = mimetypes.guess_type(job.file.name)
+            ProjectAsset.objects.create(
+                project=project,
+                asset_type="Report",
+                file=job.file.name,
+                mime_type=mime_type or "application/pdf",
+                file_size=job.file.size,
+            )
+
         return 1
 
     def _merge_attributed_user(self, job_data):

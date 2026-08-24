@@ -299,3 +299,94 @@ class RealMergeWithPdfTests(TestCase):
             ).count(),
             1,
         )
+
+
+class MergedProjectReportAccessTests(TestCase):
+    """
+    A privileged reviewer must actually see the report after a merge --
+    the reported bug: an admin still saw the report as restricted because
+    the merge attached the PDF to the job but never created the
+    ProjectAsset row the catalogue's access check actually looks at.
+    """
+
+    def setUp(self):
+        campus = Campus.objects.get_or_create(name="Pulchowk Campus")[0]
+        Department.objects.get_or_create(
+            name="Department of Electronics and Computer Engineering", campus=campus
+        )
+
+    def _bundle_with_pdf(self, directory):
+        root = Path(directory)
+        (root / "projects").mkdir(parents=True)
+        (root / "pdfs").mkdir(parents=True)
+        (root / "manifest.json").write_text(
+            json.dumps({"bundle_version": 1, "source": "t", "project_count": 1}),
+            encoding="utf-8",
+        )
+        (root / "pdfs" / "project_0001.pdf").write_bytes(b"%PDF-1.4 fake")
+        record = project_record("Merged report project")
+        record["pdf"] = "project_0001.pdf"
+        record["job"] = {
+            "original_filename": "report.pdf", "file_hash": "hash-2",
+            "status": "VERIFIED", "extracted_payload": {}, "uploaded_by_email": "",
+        }
+        (root / "projects" / "project_0001.json").write_text(
+            json.dumps(record), encoding="utf-8"
+        )
+        return root
+
+    def test_an_admin_sees_the_report_url_after_a_merge(self):
+        from django.urls import reverse
+        from rest_framework.test import APIClient
+        from accounts.models import User
+
+        with tempfile.TemporaryDirectory() as d:
+            self._bundle_with_pdf(d)
+            call_command("import_bundle", bundle=d, stdout=StringIO())
+
+        project = Project.objects.get(title="Merged report project")
+        admin = User.objects.create_user(
+            email="admin@pcampus.edu.np", password="x",
+            is_staff=True, is_superuser=True, role="admin",
+        )
+        client = APIClient()
+        client.force_authenticate(user=admin)
+        response = client.get(reverse("repository:project-detail", args=[project.id]))
+
+        self.assertIsNotNone(response.data["data"]["pdfUrl"])
+        self.assertEqual(response.data["data"]["accessStatus"], "granted")
+
+    def test_the_report_asset_row_is_created(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._bundle_with_pdf(d)
+            call_command("import_bundle", bundle=d, stdout=StringIO())
+
+        project = Project.objects.get(title="Merged report project")
+        self.assertTrue(project.assets.filter(asset_type="Report").exists())
+
+    def test_re_merging_does_not_duplicate_the_asset(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._bundle_with_pdf(d)
+            call_command("import_bundle", bundle=d, stdout=StringIO())
+            call_command("import_bundle", bundle=d, stdout=StringIO())
+
+        project = Project.objects.get(title="Merged report project")
+        self.assertEqual(project.assets.filter(asset_type="Report").count(), 1)
+
+    def test_an_ordinary_reader_still_cannot_see_it(self):
+        """The fix must not accidentally open access to everyone."""
+        from django.urls import reverse
+        from rest_framework.test import APIClient
+        from accounts.models import User
+
+        with tempfile.TemporaryDirectory() as d:
+            self._bundle_with_pdf(d)
+            call_command("import_bundle", bundle=d, stdout=StringIO())
+
+        project = Project.objects.get(title="Merged report project")
+        reader = User.objects.create_user(email="reader@pcampus.edu.np", password="x")
+        client = APIClient()
+        client.force_authenticate(user=reader)
+        response = client.get(reverse("repository:project-detail", args=[project.id]))
+
+        self.assertIsNone(response.data["data"]["pdfUrl"])
