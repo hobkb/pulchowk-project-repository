@@ -32,6 +32,11 @@ from ingestion.pipeline.utils.text_cleaners import (
     canonicalize_heading,
     normalize_line,
 )
+from ingestion.pipeline.utils.toc_outline import (
+    TocOutline,
+    parse_toc_outline,
+    split_numbered_heading,
+)
 
 # A standalone footer page number -- a lone "4", "23", etc., optionally
 # decorated with a single dash/pipe/bullet on either side ("- 4 -"). Only
@@ -171,20 +176,31 @@ def _font_based_level(font_size, stack):
     return level
 
 
+def _clamp_level(level, stack, text, warnings):
+    """Keeps a level from leaving an impossible gap in the tree.
+
+    A level-3 heading with no level-2 section open would otherwise orphan
+    itself. This happens under a ToC too, when the intermediate heading
+    exists in the outline but was never found on the page (a scanned page,
+    a heading rendered as an image); demoting is better than dropping.
+    """
+    max_allowed = (stack[-1][0] + 1) if stack else 1
+    if level > max_allowed:
+        warnings.append(
+            f"Heading \"{text}\" implied level {level} with no level "
+            f"{max_allowed} section currently open -- demoted to level {max_allowed}."
+        )
+        level = max_allowed
+    return max(1, level)
+
+
 def _resolve_level(candidate, stack, warnings):
     if candidate.level_hint is not None:
         level = candidate.level_hint
     else:
         level = _font_based_level(candidate.font_size, stack)
 
-    max_allowed = (stack[-1][0] + 1) if stack else 1
-    if level > max_allowed:
-        warnings.append(
-            f"Heading \"{candidate.text}\" implied level {level} with no level "
-            f"{max_allowed} section currently open -- demoted to level {max_allowed}."
-        )
-        level = max_allowed
-    return max(1, level)
+    return _clamp_level(level, stack, candidate.text, warnings)
 
 
 def _attach(node, level, stack, root):
@@ -288,27 +304,32 @@ def _decide_accepted_headings(stream):
     return accepted
 
 
-def build_section_tree(pages, warnings=None):
-    """Builds the nested section tree for a document's "content" pages.
+def _looks_typographically_like_heading(candidate):
+    """Set apart from body text -- bold, or noticeably larger, and shaped
+    like a heading rather than a sentence.
 
-    `warnings` (a list, mutated in place if provided) collects human-
-    readable notes about any hierarchy clamping performed, so a caller can
-    surface them as `processing_warnings` without needing to re-derive them.
+    Deliberately NOT the confidence score. That score carries a 0.30
+    penalty for a short unnumbered line, which exists to reject labels like
+    "CPU" or "System Memory" when nothing else vouches for them. Here the
+    ToC vouches for them: a two-word heading such as "Backend Development"
+    scores 0.25 and would fail the confidence bar despite being listed in
+    the ToC by name, which silently dropped real subsections into the body
+    of the chapter above.
     """
-    if warnings is None:
-        warnings = []
+    if candidate is None:
+        return False
+    signals = candidate.signals or {}
+    if not signals.get("shape_ok"):
+        return False
+    return bool(signals.get("bold")) or float(signals.get("font_ratio") or 0) >= 1.15
 
-    body_font_size = content_body_font_size(pages)
-    running_lines = detect_running_lines(pages)
-    root = []
-    stack = []  # list[(level, node)], shallowest-open first
-    in_back_matter = False
 
-    # --- Pass 1: collect the body stream ------------------------------
-    # Acceptance for an UNNUMBERED heading depends on what follows it (does
-    # real body text come next, or another label?), which a per-line scorer
-    # cannot see. So the document is flattened first, then decided.
-    stream = []  # [{text, page_num, candidate}]
+def _collect_stream(pages, body_font_size, running_lines):
+    """Flattens the body into one ordered list of lines, with each line's
+    heading score attached. Acceptance of an unnumbered heading depends on
+    what follows it, which a per-line scorer cannot see, so the document is
+    flattened first and decided afterwards."""
+    stream = []
     for page in content_pages_with_toc_guard(pages):
         page_num = page.get("page_number", page.get("page_num", 1))
         lines = page.get("lines", [])
@@ -328,23 +349,166 @@ def build_section_tree(pages, warnings=None):
                 "page_num": page_num,
                 "candidate": score_heading_candidate(line, body_font_size),
             })
+    return stream
 
-    accepted = _decide_accepted_headings(stream)
 
-    # --- Pass 2: build the tree ---------------------------------------
-    for position, entry in enumerate(stream):
-        text = entry["text"]
-        page_num = entry["page_num"]
+def _outline_skeleton(outline):
+    """The tree the ToC describes, built before the body is read at all.
 
-        kind = back_matter_kind(text)
-        if kind:
+    A node's parent is its numbering prefix -- 5.3.4 belongs to 5.3, full
+    stop. Deriving the parent from "whichever section happened to be open
+    when this heading was found" is what put 5.3.4 underneath 5.1 when 5.3
+    was never spotted on the page: the outline plainly said otherwise and
+    was being overruled by the body scan.
+    """
+    root = []
+    by_numbering = {}
+    node_for = {}
+
+    for entry in outline.entries:
+        node = _new_node(
+            entry["title"],
+            entry["numbering"],
+            1,                      # replaced below, once the parent is known
+            None,
+            None,
+            [],
+            1.0,
+            {"from_toc": True},
+            display_order=None,
+        )
+        node["_seen"] = False
+        node_for[id(entry)] = node
+
+        parent = None
+        numbering = entry["numbering"]
+        if numbering and len(numbering) > 1:
+            # Nearest ancestor actually present in the ToC. A report that
+            # lists 5 and 5.3.4 but no 5.3 still nests correctly under 5.
+            for cut in range(len(numbering) - 1, 0, -1):
+                parent = by_numbering.get(numbering[:cut])
+                if parent is not None:
+                    break
+
+        if parent is None:
+            node["heading_level"] = 1
+            root.append(node)
+        else:
+            node["heading_level"] = parent["heading_level"] + 1
+            parent["children"].append(node)
+
+        if numbering:
+            by_numbering.setdefault(numbering, node)
+
+    return root, node_for
+
+
+def _prune_unseen(nodes):
+    """Drops outline entries never found in the body, keeping any that
+    still have a descendant that was. A ToC lists sections a scanned or
+    image-rendered page may not yield; an empty card for one of those is
+    noise, but its parent must survive if a child was found."""
+    kept = []
+    for node in nodes:
+        node["children"] = _prune_unseen(node["children"])
+        if node["_seen"] or node["children"]:
+            kept.append(node)
+    return kept
+
+
+def _renumber(nodes):
+    for index, node in enumerate(nodes, start=1):
+        node["display_order"] = index
+        node.pop("_seen", None)
+        _renumber(node["children"])
+
+
+def _build_from_outline(stream, outline, accepted, warnings):
+    """Pours the body into the outline's shape.
+
+    The ToC decides the structure; the body only supplies text. A line is a
+    heading when the outline names it -- anything else, numbered list items
+    included, is content of whichever section is current. That is the whole
+    rule.
+    """
+    root, node_for = _outline_skeleton(outline)
+
+    current = None
+    unsectioned = None
+    in_back_matter = False
+
+    for position, item in enumerate(stream):
+        text = item["text"]
+        page_num = item["page_num"]
+
+        if back_matter_kind(text):
+            in_back_matter = True
+            current = None
+            continue
+        if in_back_matter:
+            continue
+
+        candidate = item["candidate"]
+        numbering, title = split_numbered_heading(text)
+
+        matched = outline.match(
+            numbering, title, scored_as_heading=position in accepted
+        )
+        if (
+            matched is None
+            and numbering is None
+            and _looks_typographically_like_heading(candidate)
+        ):
+            matched = outline.match_title(title)
+
+        if matched is not None:
+            node = node_for[id(matched)]
+            node["_seen"] = True
+            node["page_start"] = page_num
+            node["page_end"] = page_num
+            current = node
+            continue
+
+        if current is not None:
+            current["content"] += ("\n" if current["content"] else "") + text
+            current["page_end"] = page_num
+        else:
+            # Body text before the first outline heading was reached.
+            if unsectioned is None:
+                unsectioned = _new_node(
+                    "Unsectioned Content", None, 1, page_num, None, [], 0.0,
+                    {"synthetic": True}, display_order=None,
+                )
+                unsectioned["_seen"] = True
+                root.insert(0, unsectioned)
+            unsectioned["content"] += ("\n" if unsectioned["content"] else "") + text
+            unsectioned["page_end"] = page_num
+
+    root = _prune_unseen(root)
+    _renumber(root)
+    _finalize(root)
+    return root
+
+
+def _build_from_typography(stream, accepted, warnings):
+    """The fallback for a report with no usable ToC: a heading is whatever
+    the scorer accepted, placed with a stack of currently-open sections."""
+    root = []
+    stack = []
+    in_back_matter = False
+
+    for position, item in enumerate(stream):
+        text = item["text"]
+        page_num = item["page_num"]
+
+        if back_matter_kind(text):
             in_back_matter = True
             stack = []
             continue
         if in_back_matter:
             continue
 
-        candidate = entry["candidate"]
+        candidate = item["candidate"]
         if position in accepted:
             level = _resolve_level(candidate, stack, warnings)
             node = _new_node(
@@ -362,42 +526,48 @@ def build_section_tree(pages, warnings=None):
             _attach(node, level, stack, root)
             continue
 
-        # Not accepted as a heading -> body text, folded into whatever
-        # section is currently deepest-open (this is the actual section
-        # boundary: a section's content runs from its own heading to
-        # the next accepted heading, full stop -- not to the next line
-        # that happens to match a keyword).
         if stack:
             node = stack[-1][1]
             node["content"] += ("\n" if node["content"] else "") + text
             node["page_end"] = page_num
         else:
-            # Content on a "content" page before any heading has been
-            # recognized yet -- kept rather than silently dropped, so a
-            # missed first heading shows up as a visible, reviewable
-            # "Unsectioned Content" node instead of vanishing.
             if root and root[-1].get("heading") == "Unsectioned Content" and root[-1]["heading_level"] == 1:
                 node = root[-1]
                 node["content"] += ("\n" if node["content"] else "") + text
                 node["page_end"] = page_num
             else:
-                node = {
-                    "heading": "Unsectioned Content",
-                    "numbering": None,
-                    "canonical_section": None,
-                    "semantic_role": [],
-                    "heading_level": 1,
-                    "confidence": 0.0,
-                    "signals": {"synthetic": True},
-                    "display_order": len(root) + 1,
-                    "page_start": page_num,
-                    "page_end": page_num,
-                    "content": text,
-                    "children": [],
-                    "_font_size": 0.0,
-                }
+                node = _new_node(
+                    "Unsectioned Content", None, 1, page_num, None, [], 0.0,
+                    {"synthetic": True}, display_order=len(root) + 1,
+                )
                 root.append(node)
                 stack = [(1, node)]
 
     _finalize(root)
     return root
+
+
+def build_section_tree(pages, warnings=None):
+    """Builds the nested section tree for a document's "content" pages.
+
+    Where the report has a Table of Contents, that is the structure -- the
+    tree is built from it and the body only fills in text. Where it has
+    none, headings are inferred from typography as before.
+
+    `warnings` (a list, mutated in place if provided) collects human-
+    readable notes about any hierarchy clamping performed, so a caller can
+    surface them as `processing_warnings` without needing to re-derive them.
+    """
+    if warnings is None:
+        warnings = []
+
+    outline = TocOutline(parse_toc_outline(pages))
+    body_font_size = content_body_font_size(pages)
+    running_lines = detect_running_lines(pages)
+
+    stream = _collect_stream(pages, body_font_size, running_lines)
+    accepted = _decide_accepted_headings(stream)
+
+    if outline.is_authoritative:
+        return _build_from_outline(stream, outline, accepted, warnings)
+    return _build_from_typography(stream, accepted, warnings)

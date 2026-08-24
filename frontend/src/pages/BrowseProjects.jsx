@@ -209,6 +209,15 @@ export default function BrowseProjects() {
     return () => controller.abort();
   }, [queryParam, department, academicLevel, batch, cluster, supervisor, page]);
 
+  // Which slice of the whole result set is on screen.
+  const resultRange = useMemo(() => {
+    const total = pagination?.total_count ?? projects.length;
+    const size = pagination?.page_size ?? projects.length ?? 0;
+    const current = pagination?.page ?? 1;
+    const first = total === 0 ? 0 : (current - 1) * size + 1;
+    return { first, last: first + projects.length - 1, total };
+  }, [pagination, projects.length]);
+
   const activeFilters = useMemo(
     () =>
       [
@@ -342,8 +351,18 @@ export default function BrowseProjects() {
                   "Searching…"
                 ) : (
                   <>
-                    Showing <span className="font-semibold text-ink tnum">{projects.length}</span>{" "}
-                    {projects.length === 1 ? "project" : "projects"}
+                    {/* The range, not just this page's size. Saying
+                        "Showing 5 projects" beside a pager reading "9
+                        projects" read as a contradiction -- one was the
+                        page, the other the result set. */}
+                    Showing{" "}
+                    <span className="font-semibold text-ink tnum">
+                      {resultRange.first}
+                      {resultRange.last > resultRange.first && `–${resultRange.last}`}
+                    </span>{" "}
+                    of{" "}
+                    <span className="font-semibold text-ink tnum">{resultRange.total}</span>{" "}
+                    {resultRange.total === 1 ? "project" : "projects"}
                     {queryParam && (
                       <>
                         {" "}for <span className="font-semibold text-ink">“{queryParam}”</span>
@@ -411,8 +430,6 @@ export default function BrowseProjects() {
               <Pagination
                 page={pagination.page}
                 totalPages={pagination.total_pages}
-                totalCount={pagination.total_count}
-                label="projects"
                 onChange={(next) => {
                   updateParams({ page: next > 1 ? String(next) : "" });
                   window.scrollTo({ top: 0, behavior: "smooth" });

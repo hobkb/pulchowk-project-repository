@@ -17,7 +17,15 @@ from notifications.models import Notification
 from notifications.services import NotificationService
 from organization.departments import canonical_department
 from organization.models import Department
-from repository.models import Keyword, Project, ProjectAccessRequest, ProjectKeyword
+from accounts.models import Faculty, Person
+from ingestion.pipeline.utils.text_cleaners import normalize_person_name
+from repository.models import (
+    Keyword,
+    Project,
+    ProjectAccessRequest,
+    ProjectKeyword,
+    ProjectPerson,
+)
 from repository.serializers import ProjectDetailSerializer
 
 
@@ -227,6 +235,86 @@ class AccessRequestDecisionView(APIView):
         )
 
 
+SUPERVISORY_ROLES = ("Supervisor", "Co-Supervisor")
+
+
+def _replace_supervisors(project, supplied):
+    """Sets this project's supervisors to exactly the list supplied.
+
+    Each entry is matched to an existing Faculty record by name before any
+    new one is created, so naming a supervisor already in the directory
+    links to that same person rather than creating a second record -- which
+    would split their project list across two entries in the search facet.
+
+    Author links are untouched: only the supervisory roles are replaced.
+    """
+    resolved = []
+    for entry in supplied:
+        if isinstance(entry, str):
+            entry = {"full_name": entry}
+        if not isinstance(entry, dict):
+            continue
+
+        full_name = normalize_person_name(str(entry.get("full_name") or "").strip())
+        if not full_name:
+            continue
+
+        title = str(entry.get("title") or "").strip()
+        designation = str(entry.get("designation") or "").strip()
+        role = str(entry.get("role") or "Supervisor").strip()
+        if role not in SUPERVISORY_ROLES:
+            role = "Supervisor"
+
+        faculty = Faculty.objects.filter(full_name__iexact=full_name).first()
+        if faculty is None:
+            # Person -> Faculty is table-per-type, so a plain Person holding
+            # this name cannot be turned into one; reporting that is better
+            # than raising an opaque database error.
+            if Person.objects.filter(full_name__iexact=full_name).exists():
+                raise ValidationError({
+                    "supervisors": f'"{full_name}" is already recorded as a non-faculty person.'
+                })
+            faculty = Faculty.objects.create(
+                full_name=full_name,
+                title=title,
+                designation=designation,
+                department=project.department,
+            )
+        else:
+            # Additive: a blank field here never clears what is on record.
+            fills = {}
+            if title and title != faculty.title:
+                fills["title"] = title
+            if designation and designation != faculty.designation:
+                fills["designation"] = designation
+            if project.department_id and faculty.department_id is None:
+                fills["department"] = project.department
+            if fills:
+                for field, value in fills.items():
+                    setattr(faculty, field, value)
+                faculty.save(update_fields=list(fills))
+
+        resolved.append((faculty, role))
+
+    ProjectPerson.objects.filter(project=project, role__in=SUPERVISORY_ROLES).delete()
+
+    next_order = (
+        project.project_people.order_by("-display_order")
+        .values_list("display_order", flat=True)
+        .first()
+        or 0
+    )
+    seen = set()
+    for faculty, role in resolved:
+        if (faculty.pk, role) in seen:
+            continue
+        seen.add((faculty.pk, role))
+        next_order += 1
+        ProjectPerson.objects.create(
+            project=project, person=faculty, role=role, display_order=next_order
+        )
+
+
 class ProjectManageView(APIView):
     """Reviewer-only edit and delete for a published project.
 
@@ -317,6 +405,12 @@ class ProjectManageView(APIView):
                     continue
                 keyword, _ = Keyword.objects.get_or_create(name=name)
                 ProjectKeyword.objects.get_or_create(project=project, keyword=keyword)
+
+        # Supervisors are replaced wholesale when supplied. A supervisor is
+        # often only identified after publication -- the report names them
+        # nowhere extraction could find, and someone recognises them later.
+        if isinstance(data.get("supervisors"), list):
+            _replace_supervisors(project, data["supervisors"])
 
         project.refresh_from_db()
         return success_response(

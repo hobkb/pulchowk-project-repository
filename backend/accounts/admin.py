@@ -75,6 +75,7 @@ class StudentAdmin(admin.ModelAdmin):
 @admin.register(Faculty)
 class FacultyAdmin(admin.ModelAdmin):
     list_display = (
+        "id",
         "full_name",
         "title",
         "designation",

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -10,9 +10,16 @@ import {
   faSpinner,
   faTrash,
   faPenToSquare,
+  faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { faBookmark as faBookmarkOutline } from "@fortawesome/free-regular-svg-icons";
-import { accessRequestsApi, bookmarksApi, projectAdminApi, projectsApi } from "../api/client";
+import {
+  accessRequestsApi,
+  accountsApi,
+  bookmarksApi,
+  projectAdminApi,
+  projectsApi,
+} from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { isAdminUser } from "../lib/nav";
 import { RestrictedReport } from "../components/RestrictedReport";
@@ -35,6 +42,7 @@ import {
   Textarea,
   Input,
   Select,
+  FieldLabel,
 } from "../components/ui";
 
 /**
@@ -126,6 +134,17 @@ function EditProjectDialog({ open, onClose, project, onSaved }) {
   const { showToast } = useToast();
   const [form, setForm] = useState(null);
   const [choices, setChoices] = useState({ clusters: [], departments: [] });
+  // The supervisor directory, so an existing person is picked rather than
+  // typed again -- retyping is how the same supervisor ends up in the
+  // directory twice, splitting their project list across two entries.
+  const [facultyList, setFacultyList] = useState([]);
+  const [facultySearch, setFacultySearch] = useState("");
+  const [addingFaculty, setAddingFaculty] = useState(false);
+  const [newFaculty, setNewFaculty] = useState({
+    full_name: "",
+    title: "Dr.",
+    designation: "",
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -141,7 +160,20 @@ function EditProjectDialog({ open, onClose, project, onSaved }) {
       cluster: project.cluster || "",
       department_name: project.department || "",
       keywords: (project.keywords || []).join(", "),
+      supervisors: (project.supervisorRecords || []).map((r) => ({
+        full_name: r.full_name || "",
+        title: r.title || "",
+        designation: r.designation || "",
+        role: r.role || "Supervisor",
+      })),
     });
+    setFacultySearch("");
+    setAddingFaculty(false);
+    setNewFaculty({ full_name: "", title: "Dr.", designation: "" });
+    accountsApi
+      .getFacultyList()
+      .then((body) => setFacultyList(body?.data || body || []))
+      .catch(() => setFacultyList([]));
     projectsApi
       .facets()
       .then((body) =>
@@ -165,6 +197,7 @@ function EditProjectDialog({ open, onClose, project, onSaved }) {
           .split(",")
           .map((k) => k.trim())
           .filter(Boolean),
+        supervisors: form.supervisors,
       });
       onSaved?.(body.data);
       onClose();
@@ -177,6 +210,19 @@ function EditProjectDialog({ open, onClose, project, onSaved }) {
   }
 
   const set = (field) => (event) => setForm((f) => ({ ...f, [field]: event.target.value }));
+
+  // Substring match across every registered supervisor -- name, honorific
+  // and rank -- so the person can be found however the reviewer remembers
+  // them, and never has to be retyped.
+  const matchingFaculty = useMemo(() => {
+    const q = facultySearch.trim().toLowerCase();
+    if (!q) return facultyList;
+    return facultyList.filter((f) =>
+      [f.full_name, f.title, f.designation]
+        .filter(Boolean)
+        .some((field) => String(field).toLowerCase().includes(q))
+    );
+  }, [facultyList, facultySearch]);
 
   return (
     <Dialog
@@ -256,6 +302,162 @@ function EditProjectDialog({ open, onClose, project, onSaved }) {
             onChange={set("keywords")}
             hint="Comma separated."
           />
+
+          <div className="flex flex-col gap-2 border-t border-line pt-4">
+            <div className="flex items-center justify-between gap-3">
+              <FieldLabel>Supervisors</FieldLabel>
+              <button
+                type="button"
+                onClick={() => setAddingFaculty((v) => !v)}
+                className="cursor-pointer text-xs font-semibold text-link hover:text-link-hover"
+              >
+                {addingFaculty ? "Cancel" : "Not listed? Add"}
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {form.supervisors.map((sup, index) => (
+                <span
+                  key={`${sup.full_name}-${index}`}
+                  className="flex items-center gap-2 rounded-sm border border-line-strong bg-band px-2.5 py-1 text-sm"
+                >
+                  <span>
+                    {[sup.designation, sup.title, sup.full_name].filter(Boolean).join(" ")}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${sup.full_name}`}
+                    onClick={() =>
+                      setForm((f) => ({
+                        ...f,
+                        supervisors: f.supervisors.filter((_, i) => i !== index),
+                      }))
+                    }
+                    className="cursor-pointer text-ink-3 transition-colors hover:text-err"
+                  >
+                    <FontAwesomeIcon icon={faXmark} className="h-3 w-3" aria-hidden="true" />
+                  </button>
+                </span>
+              ))}
+              {form.supervisors.length === 0 && (
+                <p className="text-sm text-ink-3">None recorded.</p>
+              )}
+            </div>
+
+            {addingFaculty ? (
+              <div className="flex flex-col gap-2 rounded-sm border border-line bg-band p-3">
+                <Input
+                  id="edit-new-sup-name"
+                  label="Full name"
+                  value={newFaculty.full_name}
+                  onChange={(e) =>
+                    setNewFaculty({ ...newFaculty, full_name: e.target.value })
+                  }
+                  placeholder="e.g. Ram Krishna Maharjan"
+                />
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <Input
+                    id="edit-new-sup-title"
+                    label="Title"
+                    value={newFaculty.title}
+                    onChange={(e) => setNewFaculty({ ...newFaculty, title: e.target.value })}
+                    placeholder="Dr."
+                    hint="Honorific only. The rank goes in Designation."
+                  />
+                  <Input
+                    id="edit-new-sup-designation"
+                    label="Designation"
+                    value={newFaculty.designation}
+                    onChange={(e) =>
+                      setNewFaculty({ ...newFaculty, designation: e.target.value })
+                    }
+                    placeholder="e.g. Professor"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={!newFaculty.full_name.trim()}
+                  onClick={() => {
+                    setForm((f) => ({
+                      ...f,
+                      supervisors: [
+                        ...f.supervisors,
+                        {
+                          full_name: newFaculty.full_name.trim(),
+                          title: newFaculty.title.trim(),
+                          designation: newFaculty.designation.trim(),
+                          role: "Supervisor",
+                        },
+                      ],
+                    }));
+                    setNewFaculty({ full_name: "", title: "Dr.", designation: "" });
+                    setAddingFaculty(false);
+                  }}
+                >
+                  Add supervisor
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2 rounded-sm border border-line bg-band p-3">
+                <Input
+                  id="edit-sup-search"
+                  value={facultySearch}
+                  onChange={(e) => setFacultySearch(e.target.value)}
+                  placeholder="Search registered supervisors by name, title or designation"
+                />
+                <div className="flex max-h-40 flex-col gap-0.5 overflow-y-auto pr-1">
+                  {matchingFaculty.map((f) => {
+                    const chosen = form.supervisors.some(
+                      (s) =>
+                        s.full_name.trim().toLowerCase() ===
+                        (f.full_name || "").trim().toLowerCase()
+                    );
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        disabled={chosen}
+                        onClick={() =>
+                          setForm((prev) => ({
+                            ...prev,
+                            supervisors: [
+                              ...prev.supervisors,
+                              {
+                                full_name: f.full_name || "",
+                                title: f.title || "",
+                                designation: f.designation || "",
+                                role: "Supervisor",
+                              },
+                            ],
+                          }))
+                        }
+                        className={`rounded-sm px-2.5 py-1.5 text-left text-sm transition-colors ${
+                          chosen
+                            ? "cursor-not-allowed text-ink-3"
+                            : "cursor-pointer text-ink-2 hover:bg-white hover:text-ink"
+                        }`}
+                      >
+                        {[f.title, f.full_name].filter(Boolean).join(" ")}{" "}
+                        <span className="text-xs text-ink-3">
+                          ({f.designation || "Faculty"})
+                        </span>
+                        {chosen && <span className="text-xs"> — already added</span>}
+                      </button>
+                    );
+                  })}
+                  {matchingFaculty.length === 0 && (
+                    <p className="p-1.5 text-xs text-ink-3">
+                      {facultySearch.trim()
+                        ? `Nothing found for “${facultySearch.trim()}”.`
+                        : "No supervisors registered yet."}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           {error && <ErrorNotice title="The project was not saved" detail={error} />}
         </form>
       )}

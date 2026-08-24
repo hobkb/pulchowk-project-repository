@@ -82,7 +82,8 @@ checkpoints/
 
 *.pdf
 
-client_secret_90557791507-la7kep1csa0kgkb6cj2a3f1100sggsnk.apps.googleusercontent.com.json
+client_secret*.json
+*.apps.googleusercontent.com.json
 
 
 .postman
@@ -108,3 +109,46 @@ skills-lock.json
 bundle-*/
 bundle-*.zip
 *.bundle.zip
+
+# ---------------------------------------------------------------------------
+# Report sources
+# ---------------------------------------------------------------------------
+# The LaTeX report drafts and their rendered figures are written, compiled and
+# submitted outside the codebase. They are large, they are regenerated often,
+# and the compiled PDFs are build output rather than source.
+project-report/
+project_report_v2/
+
+# ---------------------------------------------------------------------------
+# Archives
+# ---------------------------------------------------------------------------
+# Nothing here needs a committed archive. The ones that turn up are ingestion
+# bundles and zipped report folders, both of which carry project content.
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.rar
+
+# ---------------------------------------------------------------------------
+# Local maintenance scripts and their working lists
+# ---------------------------------------------------------------------------
+# One-off scripts written to repair or migrate local data. They are not part
+# of the application and they assume a particular local database state.
+#
+# files.txt is confidential as well as local: it lists source report
+# filenames, and a report filename echoes the project title, so it falls under
+# the same rule as the PDFs themselves.
+backend/files.txt
+backend/move_files.py
+backend/completed_files.py
+backend/assign_supervisor.py
+
+# ---------------------------------------------------------------------------
+# Notebooks
+# ---------------------------------------------------------------------------
+# The notebook itself is tracked, but its checkpoints are not. Clear the cell
+# outputs before committing: a debug notebook run against the corpus stores
+# extracted project text in its output cells.
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/

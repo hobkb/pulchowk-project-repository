@@ -307,6 +307,7 @@ function flattenForSummary(tree, path = []) {
 function serializeSectionTree(nodes) {
   return nodes.map((node, idx) => ({
     heading: node.heading,
+    numbering: node.numbering || null,
     canonical_section: node.canonical_section || autoCanonicalizeHeading(node.heading),
     heading_level: parseInt(node.heading_level) || 1,
     display_order: idx + 1,
@@ -332,7 +333,12 @@ function serializeSectionTree(nodes) {
  * only the chrome differs.
  */
 function SectionEditorRow({ node, path, isFirst, isLast, depth, onChange, onMove, onDelete, onAddChild, jobId }) {
-  const numbering = path.map((i) => i + 1).join(".");
+  // The document's own section number, where extraction captured one.
+  // Falling back to the card's position was actively misleading: a
+  // subsection the report numbers 5.3 showed as "5.2" purely because 5.2
+  // was not present in this document, so the label disagreed with both the
+  // report and its table of contents.
+  const numbering = node.numbering || path.map((i) => i + 1).join(".");
   const childCount = (node.children || []).length;
   const [collapsed, setCollapsed] = useState(false);
   // "Find page" -- looks up which real PDF page this heading starts on,
@@ -929,13 +935,21 @@ export default function IngestionWorkflow() {
   }, [facultyList, departmentId]);
 
   const searchedFaculty = useMemo(() => {
-    const baseList = filteredFacultyList.length > 0 ? filteredFacultyList : facultyList;
-    if (!facultySearch.trim()) return baseList;
-    const q = facultySearch.toLowerCase();
-    return baseList.filter(
-      (f) =>
-        (f.full_name || "").toLowerCase().includes(q) ||
-        (f.designation || "").toLowerCase().includes(q)
+    const q = facultySearch.trim().toLowerCase();
+
+    // With nothing typed, the department's own faculty are the useful
+    // default. As soon as anything is typed the search covers EVERY
+    // registered supervisor: restricting it to one department hid people
+    // who genuinely exist, and the reviewer then added them again by hand
+    // -- which is how the same supervisor ended up in the directory twice.
+    if (!q) {
+      return filteredFacultyList.length > 0 ? filteredFacultyList : facultyList;
+    }
+
+    return facultyList.filter((f) =>
+      [f.full_name, f.designation, f.title]
+        .filter(Boolean)
+        .some((field) => String(field).toLowerCase().includes(q))
     );
   }, [filteredFacultyList, facultyList, facultySearch]);
 
@@ -1694,7 +1708,13 @@ export default function IngestionWorkflow() {
                         </div>
                       );
                     })}
-                    {searchedFaculty.length === 0 && <p className="tnum text-xs text-ink-3 p-2">No matching faculty found.</p>}
+                    {searchedFaculty.length === 0 && (
+                      <p className="p-2 text-xs text-ink-3">
+                        {facultySearch.trim()
+                          ? `Nothing found for “${facultySearch.trim()}”. Use “Add Faculty” to register them.`
+                          : "No faculty registered yet. Use “Add Faculty” to register one."}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

@@ -455,10 +455,12 @@ class ProjectDetailSerializer(ProjectListSerializer):
     publication_url = serializers.URLField(read_only=True, default="")
     demo_url = serializers.URLField(read_only=True, default="")
     updated_at = serializers.DateTimeField(read_only=True)
+    supervisorRecords = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
         fields = ProjectListSerializer.Meta.fields + [
+            "supervisorRecords",
             "sections",
             "sections_restricted",
             "references",
@@ -472,6 +474,31 @@ class ProjectDetailSerializer(ProjectListSerializer):
             "demo_url",
             "updated_at",
         ]
+
+    def get_supervisorRecords(self, obj):
+        """Supervisors as separate fields rather than one rendered string.
+
+        `supervisors` is pre-formatted for display ("Prof. Dr. Ram Krishna
+        Maharjan") and cannot be edited without re-parsing it, which would
+        guess wrongly at where the rank ends and the name begins. This
+        returns the parts as stored.
+        """
+        records = []
+        for pp in self.get_people(obj):
+            if pp.role not in PERSON_FACULTY_ROLES:
+                continue
+            person = pp.person
+            try:
+                faculty = person.faculty
+            except ObjectDoesNotExist:
+                faculty = None
+            records.append({
+                "full_name": person.full_name,
+                "title": (faculty.title or "") if faculty else "",
+                "designation": (faculty.designation or "") if faculty else "",
+                "role": pp.role,
+            })
+        return records
 
     def get_sections_restricted(self, obj):
         """True when the report body is being withheld from this requester,
