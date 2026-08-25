@@ -1,10 +1,11 @@
-from django.db.models import Count, Q
+from django.db.models import Case, Count, IntegerField, Q, Value, When
 from rest_framework import permissions
 from rest_framework.exceptions import NotFound
 from rest_framework.views import APIView
 
 from core.responses import paginated_response, success_response
 from organization.departments import CANONICAL_DEPARTMENTS
+from repository.hybrid_search import hybrid_ranking
 from repository.models import Project
 from repository.serializers import ProjectDetailSerializer, ProjectListSerializer
 
@@ -83,6 +84,10 @@ FILTERS = {
     # as clicks. A facet click still sends the full value and still matches,
     # but "aiml" typed by hand, or a surname on its own, now works too.
     "cluster": lambda qs, v: qs.filter(cluster__icontains=v),
+    # Major / Minor and the rest of PROJECT_TYPES. The column, its choices,
+    # the card badge and the edit form all existed already; the filter did
+    # not, so the categories were invisible to browsing.
+    "project_type": lambda qs, v: qs.filter(project_type__iexact=v),
     # Matched through the supervisory roles only, so a name that also
     # happens to be an author does not pull in unrelated projects.
     "supervisor": lambda qs, v: qs.filter(
@@ -92,7 +97,7 @@ FILTERS = {
 }
 
 
-def apply_filters(queryset, params, exclude=None):
+def apply_filters(queryset, params, exclude=None, defer_search=False):
     """Applies `q` plus every filter in FILTERS present in `params`.
 
     `exclude` omits one dimension, which is what makes the facet counts
@@ -103,7 +108,7 @@ def apply_filters(queryset, params, exclude=None):
     result count.
     """
     search = (params.get("q") or "").strip()
-    if search:
+    if search and not defer_search:
         queryset = apply_search(queryset, search)
 
     for name, apply in FILTERS.items():
@@ -135,12 +140,32 @@ class ProjectListView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        queryset = apply_filters(get_published_project_queryset(), request.query_params)
+        search = (request.query_params.get("q") or "").strip()
 
-        # Spanning a multi-valued relation can duplicate rows; ordering is
-        # newest-published-first so the catalogue has a stable, meaningful
-        # default rather than whatever order the database returns.
-        queryset = queryset.distinct().order_by("-created_at", "-id")
+        # Filters are applied first and to both branches: a project excluded
+        # by a facet must never occupy a candidate slot in either ranking.
+        queryset = apply_filters(
+            get_published_project_queryset(), request.query_params, defer_search=True
+        ).distinct()
+
+        if search:
+            ordered_ids, _branches = hybrid_ranking(queryset, search)
+            if not ordered_ids:
+                queryset = queryset.none()
+            else:
+                # Preserve the fused order through the database round trip.
+                preserved = Case(
+                    *[When(pk=pk, then=Value(i)) for i, pk in enumerate(ordered_ids)],
+                    output_field=IntegerField(),
+                )
+                queryset = (
+                    queryset.filter(pk__in=ordered_ids)
+                    .annotate(_rank=preserved)
+                    .order_by("_rank")
+                )
+        else:
+            # No query: the catalogue's own order, newest first.
+            queryset = queryset.order_by("-created_at", "-id")
 
         # Paged in the database rather than in Python: the catalogue grows
         # without bound, and serializing every published project to return
@@ -192,6 +217,9 @@ class ProjectFacetsView(APIView):
         academic_levels = counts_for("academic_level", "academic_level", "academic_level")
         batches = counts_for("batch", "batch", "-batch")
         clusters = counts_for("cluster", "cluster", "cluster")
+        # Major / Minor and the rest. Counted like every other dimension, so
+        # the sidebar can offer only the types that actually occur.
+        project_types = counts_for("project_type", "project_type", "project_type")
 
         # A supervisor is recognised by rank as much as by name, so the
         # academic title and designation travel with the name. `name` stays
@@ -241,10 +269,12 @@ class ProjectFacetsView(APIView):
                 "academic_levels": academic_levels,
                 "batches": batches,
                 "clusters": clusters,
+                "project_types": project_types,
                 "supervisors": supervisors,
                 # The full fixed vocabularies, so the upload form and the
                 # filter UI never hardcode them on the client.
                 "cluster_choices": [c[0] for c in Project.CLUSTERS],
+                "project_type_choices": [c[0] for c in Project.PROJECT_TYPES],
                 "department_choices": CANONICAL_DEPARTMENTS,
             },
             message="Repository facets retrieved successfully.",

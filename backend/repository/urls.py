@@ -9,6 +9,7 @@ from .admin_views import (
     ProjectManageView,
 )
 from .bookmark_views import BookmarkDetailAPIView, BookmarkListCreateAPIView
+from .similarity_views import SimilarProjectsView, SimilarWorkCheckView
 from .views import (
     ProjectChoicesView,
     ProjectDetailView,
@@ -26,6 +27,18 @@ urlpatterns = [
     path("projects/<int:project_id>/", ProjectDetailView.as_view(), name="project-detail"),
     # Reviewer-only edit / delete for a published record.
     path("projects/<int:project_id>/manage/", ProjectManageView.as_view(), name="project-manage"),
+    # Semantically similar projects, replacing the same-department listing.
+    path(
+        "projects/<int:project_id>/similar/",
+        SimilarProjectsView.as_view(),
+        name="project-similar",
+    ),
+    # Compare a proposed project against the repository.
+    path(
+        "similarity-check/",
+        SimilarWorkCheckView.as_view(),
+        name="similarity-check",
+    ),
     # Report access requests.
     path(
         "projects/<int:project_id>/access-request/",

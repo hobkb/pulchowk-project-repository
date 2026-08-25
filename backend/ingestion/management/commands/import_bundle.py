@@ -68,6 +68,18 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
 
     def handle(self, *args, **options):
+        # A bundle merge saves each project several times as its people,
+        # sections and keywords land. Without deferral that is one embedding
+        # task per intermediate save, each one loading the model. Queue a
+        # single batch at the end instead; the digest check still makes the
+        # whole thing idempotent.
+        from django.conf import settings as _settings
+        from django.test.utils import override_settings
+
+        with override_settings(EMBEDDING_DEFER=True):
+            return self._handle(*args, **options)
+
+    def _handle(self, *args, **options):
         bundle = Path(options["bundle"])
         manifest_path = bundle / MANIFEST_NAME
         if not manifest_path.exists():
@@ -87,6 +99,7 @@ class Command(BaseCommand):
 
         created = updated = skipped = 0
         people_linked = sections_written = pdfs_attached = 0
+        touched_ids = set()
         failures = 0
 
         for index, path in enumerate(files, start=1):
@@ -130,6 +143,8 @@ class Command(BaseCommand):
             people_linked += outcome["people"]
             sections_written += outcome["sections"]
             pdfs_attached += outcome["pdf"]
+            if outcome.get("project_id") is not None:
+                touched_ids.add(outcome["project_id"])
 
             self.stdout.write(
                 f"  Document #{index}: {outcome['action']} "
@@ -146,6 +161,12 @@ class Command(BaseCommand):
         self.stdout.write(f"  PDFs attached.......: {pdfs_attached}")
         if failures:
             self.stdout.write(self.style.WARNING(f"  documents failed....: {failures}"))
+
+        # The lexical vectors were rebuilt inline by the save signal; the
+        # embeddings were deferred and are queued here as one batch, so a
+        # merge costs a single model load rather than one per project.
+        if touched_ids and not dry_run:
+            self._queue_embeddings(touched_ids)
 
     # ------------------------------------------------------------------
 
@@ -167,7 +188,13 @@ class Command(BaseCommand):
         self._replace_references(project, record.get("references") or [])
         pdf = self._attach_pdf(project, record, bundle, job_data, dry_run)
 
-        return {"action": action, "people": people, "sections": sections, "pdf": pdf}
+        return {
+            "action": action,
+            "people": people,
+            "sections": sections,
+            "pdf": pdf,
+            "project_id": project.pk,
+        }
 
     # -- project ------------------------------------------------------
 
@@ -475,3 +502,22 @@ class Command(BaseCommand):
             user.set_unusable_password()
             user.save(update_fields=["password"])
         return user
+
+    def _queue_embeddings(self, project_ids):
+        from repository.tasks import embed_projects
+
+        ids = sorted(project_ids)
+        try:
+            embed_projects.delay(ids)
+            self.stdout.write(f"  embeddings queued...: {len(ids)}")
+        except Exception as exc:  # noqa: BLE001
+            # A broker that is not running must not fail an otherwise good
+            # merge. The projects are left without embeddings, which
+            # `backfill_embeddings --report` shows and repairs.
+            self.stdout.write(
+                self.style.WARNING(
+                    "  embeddings not queued (%s); run "
+                    "`manage.py backfill_embeddings` to generate them"
+                    % type(exc).__name__
+                )
+            )

@@ -243,6 +243,11 @@ class ProjectListSerializer(serializers.ModelSerializer):
             "year",
             "batch",
             "academic_level",
+            # Major / Minor. Was on the detail serializer only, so the card
+            # badge and both similarity panels rendered it as undefined -- the
+            # value was in the database and in the filter, but never in the
+            # list payload that draws it.
+            "project_type",
             "department",
             "cluster",
             "status",

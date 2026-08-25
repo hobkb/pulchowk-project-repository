@@ -31,21 +31,21 @@ import { Link } from "react-router-dom";
  * labelled "Search projects" because that is exactly what it is; there is
  * no ranking model or semantic component behind it and the interface does
  * not suggest otherwise.
+ *
+ * Searching is explicit
+ * ---------------------
+ * A query runs when the reader presses Enter or clicks Search, and at no
+ * other time. The box previously searched as you typed, on a timer, which
+ * made the results depend on typing speed: pausing midway through "deep"
+ * ran a search for "dee", while typing "tomato" briskly and stopping could
+ * leave the previous results on screen. Neither is something a reader can
+ * predict or correct.
+ *
+ * The two pieces of state are therefore kept apart. `queryInput` is the text
+ * in the box and nothing reads it but the box. `queryParam` is the submitted
+ * query, lives in the URL, and is the only thing that reaches the server.
+ * Submitting is the one place the first becomes the second.
  */
-
-const DEBOUNCE_MS = 300;
-
-/** Batches are stored as a three-digit admission code ("078"); readers
- *  know them as the Bikram Sambat year, so that is what is shown. The
- *  stored code remains the filter value. */
-function useDebounced(value, delay) {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return debounced;
-}
 
 /** A filter group: options with the real number of records behind each,
  *  so nothing is offered that would return nothing. */
@@ -95,7 +95,16 @@ function Facet({ legend, options, value, onChange, formatLabel = (v) => v, subLa
   );
 }
 
-export default function BrowseProjects() {
+/**
+ * The catalogue, and the two category routes built on it.
+ *
+ * `projectType` is supplied by the route rather than by a query parameter
+ * when the reader is on /projects/major or /projects/minor. It is fixed for
+ * that page: the category is the page's identity, so it is not offered as a
+ * filter the reader can clear out from under themselves. On /projects it is
+ * undefined and every type is listed.
+ */
+export default function BrowseProjects({ projectType = "", heading = "Search projects" }) {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const queryParam = searchParams.get("q") || "";
@@ -108,8 +117,10 @@ export default function BrowseProjects() {
   // a shared link both land on the page the reader was actually looking at.
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
 
+  // What is in the box, which is deliberately not what is being searched
+  // for. `queryParam` is the submitted query and the only thing that reaches
+  // the server; this is just the text the reader is still editing.
   const [queryInput, setQueryInput] = useState(queryParam);
-  const debouncedQuery = useDebounced(queryInput, DEBOUNCE_MS);
 
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -117,6 +128,10 @@ export default function BrowseProjects() {
   const [facets, setFacets] = useState(null);
   const [pagination, setPagination] = useState(null);
 
+  // The box follows the URL, not the other way round: the back button, a
+  // shared link and the clear-filters button all change the submitted query,
+  // and the box has to show what is actually being searched for. Typing does
+  // not run the other way, so an unsubmitted edit is left alone.
   useEffect(() => {
     setQueryInput((current) => (current === queryParam ? current : queryParam));
   }, [queryParam]);
@@ -141,11 +156,6 @@ export default function BrowseProjects() {
     [setSearchParams]
   );
 
-  useEffect(() => {
-    if (debouncedQuery === queryParam) return;
-    updateParams({ q: debouncedQuery });
-  }, [debouncedQuery, queryParam, updateParams]);
-
   // Facets are refetched whenever the filters change. Counting each
   // dimension against the OTHER active filters is what makes the number
   // beside an option equal what selecting it actually returns -- with a
@@ -154,7 +164,15 @@ export default function BrowseProjects() {
   useEffect(() => {
     let cancelled = false;
     projectsApi
-      .facets({ q: queryParam, department, academic_level: academicLevel, batch, cluster, supervisor })
+      .facets({
+        q: queryParam,
+        department,
+        academic_level: academicLevel,
+        batch,
+        cluster,
+        supervisor,
+        project_type: projectType,
+      })
       .then((body) => {
         if (!cancelled) setFacets(body.data);
       })
@@ -164,7 +182,7 @@ export default function BrowseProjects() {
     return () => {
       cancelled = true;
     };
-  }, [queryParam, department, academicLevel, batch, cluster, supervisor]);
+  }, [queryParam, department, academicLevel, batch, cluster, supervisor, projectType]);
 
   // One request in flight at a time, so a slow earlier search can never
   // overwrite a newer one.
@@ -187,6 +205,7 @@ export default function BrowseProjects() {
           batch,
           cluster,
           supervisor,
+          project_type: projectType,
           page,
         },
         { signal: controller.signal }
@@ -207,7 +226,7 @@ export default function BrowseProjects() {
       });
 
     return () => controller.abort();
-  }, [queryParam, department, academicLevel, batch, cluster, supervisor, page]);
+  }, [queryParam, department, academicLevel, batch, cluster, supervisor, projectType, page]);
 
   // Which slice of the whole result set is on screen.
   const resultRange = useMemo(() => {
@@ -255,16 +274,24 @@ export default function BrowseProjects() {
         <Crumb>
           <Link to="/dashboard">Home</Link>
         </Crumb>
-        <Crumb last>Projects</Crumb>
+        <Crumb last>{heading}</Crumb>
       </Breadcrumb>
 
       <Container width="wide" className="px-5 sm:px-8 py-8">
-        <h1 className="text-title">Search projects</h1>
+        <h1 className="text-title">{heading}</h1>
 
         <div className="mt-5 max-w-2xl">
           <SearchField
             value={queryInput}
-            onChange={setQueryInput}
+            onChange={(value) => {
+              setQueryInput(value);
+              // Emptying the box is itself an explicit act -- the native
+              // clear control on a search input, or selecting the text and
+              // deleting it -- and both read as "stop searching for that".
+              // Waiting for Enter here would leave the results and the URL
+              // answering a query the reader can no longer see.
+              if (!value.trim() && queryParam) updateParams({ q: "" });
+            }}
             onSubmit={(value) => updateParams({ q: value.trim() })}
             placeholder="Search by title, author, supervisor, rank, cluster or keyword"
             size="lg"

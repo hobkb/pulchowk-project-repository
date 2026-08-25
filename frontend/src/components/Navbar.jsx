@@ -39,6 +39,40 @@ function displayName(user) {
   return user?.profile?.full_name || user?.email || "Account";
 }
 
+/**
+ * A top-level section that has sub-sections.
+ *
+ * Opened on hover and on keyboard focus rather than on click, so it needs no
+ * open/closed state and stays reachable by tab. The parent remains a real
+ * link: "Projects" still goes to the whole catalogue, and the panel only
+ * offers the narrower routes beneath it.
+ */
+function TopLinkGroup({ to, label, end, children, onNavigate }) {
+  return (
+    <div className="relative flex items-stretch group">
+      <TopLink to={to} label={label} end={end} onNavigate={onNavigate} />
+      <div className="pointer-events-none absolute left-0 top-full z-30 hidden min-w-[13rem] border border-line bg-white py-1 opacity-0 shadow-sm transition-opacity group-hover:pointer-events-auto group-hover:block group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:block group-focus-within:opacity-100">
+        {children.map((child) => (
+          <NavLink
+            key={child.to}
+            to={child.to}
+            end={child.end}
+            onClick={onNavigate}
+            className={({ isActive }) =>
+              [
+                "block whitespace-nowrap px-4 py-2 text-sm no-underline transition-colors hover:no-underline",
+                isActive ? "bg-band font-semibold text-ink" : "text-ink-2 hover:bg-band hover:text-ink",
+              ].join(" ")
+            }
+          >
+            {child.label}
+          </NavLink>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TopLink({ to, label, end, onNavigate }) {
   return (
     <NavLink
@@ -168,9 +202,13 @@ export default function Navbar({ onToggleMenu }) {
         </NavLink>
 
         <nav aria-label="Primary" className="ml-5 hidden items-stretch xl:flex">
-          {PRIMARY_NAV.map((item) => (
-            <TopLink key={item.to} {...item} />
-          ))}
+          {PRIMARY_NAV.map((item) =>
+            item.children ? (
+              <TopLinkGroup key={item.to} {...item} />
+            ) : (
+              <TopLink key={item.to} {...item} />
+            )
+          )}
           {isAdmin &&
             adminNavFor(user).map((item) => <TopLink key={item.to} {...item} />)}
         </nav>

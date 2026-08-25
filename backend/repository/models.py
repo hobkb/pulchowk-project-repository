@@ -1,6 +1,9 @@
 
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVectorField
 from django.db import models
 from django.conf import settings
+from pgvector.django import HnswIndex, VectorField
 from organization.models import Department, ResearchGroup
 from ingestion.pipeline.utils.text_cleaners import normalize_canonical_section, normalize_person_name, normalize_section_title
 
@@ -69,8 +72,17 @@ class Project(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Weighted full-text index over the catalogue metadata: title, keywords,
+    # abstract, department and the names of the people credited. Maintained by
+    # repository.search_index; see that module for why the previous chained
+    # icontains search had to be replaced.
+    search_vector = SearchVectorField(null=True, editable=False)
+
     class Meta:
         db_table = "projects"
+        indexes = [
+            GinIndex(fields=["search_vector"], name="project_search_vector_gin"),
+        ]
 
     def __str__(self):
         return self.title[:50]
@@ -95,6 +107,115 @@ class ProjectAsset(models.Model):
 
     class Meta:
         db_table = "project_assets"
+
+
+class ProjectEmbedding(models.Model):
+    """One semantic vector for one project under one embedding model.
+
+    Kept in its own table rather than as a column on Project for three
+    reasons. A model migration can write the new vectors alongside the old
+    ones and only then switch over, so search is never served from a
+    half-rebuilt index. The freshness bookkeeping (which model, which source
+    text, generated when) stays out of the project row that the catalogue
+    reads on every request. And when section-level embeddings are added for
+    retrieval-augmented answering later, they become a sibling table rather
+    than a second set of columns here.
+
+    `source_hash` is the digest of the exact text that was embedded. An
+    embedding is stale when that digest no longer matches the text the
+    current representation would produce, which makes regeneration a pure
+    function of content rather than a guess about which fields changed.
+    """
+
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="embeddings"
+    )
+    model_version = models.CharField(max_length=64, db_index=True)
+    source_hash = models.CharField(max_length=64)
+    embedding = VectorField(dimensions=384)
+    generated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "project_embeddings"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "model_version"],
+                name="uniq_project_embedding_per_model",
+            )
+        ]
+        indexes = [
+            # Cosine distance, because the vectors are stored L2-normalised
+            # and similarity is what every caller wants. At the present corpus
+            # size Postgres will sequentially scan regardless; the index costs
+            # almost nothing to carry and is what keeps the query plan stable
+            # as the repository grows.
+            HnswIndex(
+                name="project_embedding_hnsw",
+                fields=["embedding"],
+                m=16,
+                ef_construction=64,
+                opclasses=["vector_cosine_ops"],
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.project_id}@{self.model_version}"
+
+
+class SimilarityCalibration(models.Model):
+    """Where a raw cosine sits in this corpus.
+
+    Cosine has no absolute meaning here. Every project is an undergraduate
+    engineering report from one department written in a similar house style,
+    so two unrelated projects still score a median of about 0.64 and reach
+    0.82 at the ninety-ninth percentile. Telling a reader "0.79" is therefore
+    close to meaningless; telling them the score is higher than 97% of
+    arbitrary pairs in this repository is not.
+
+    `breakpoints` is the random-pair distribution measured by
+    `manage.py search_eval`, stored as ascending [percentile, cosine] pairs.
+    One row per embedding model, because the distribution belongs to the
+    model as much as to the corpus.
+
+    `corpus_size` is recorded so a calibration measured on 95 projects is
+    visibly a calibration measured on 95 projects once there are a thousand.
+    """
+
+    model_version = models.CharField(max_length=64, unique=True)
+    corpus_size = models.IntegerField()
+    pair_count = models.IntegerField()
+    sampled = models.BooleanField(default=False)
+    breakpoints = models.JSONField(default=list)
+    generated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "similarity_calibration"
+
+    def __str__(self):
+        return f"{self.model_version} @ {self.corpus_size} projects"
+
+    def percentile_for(self, score):
+        """Percentile of `score` within the measured random-pair distribution.
+
+        Linear interpolation between breakpoints; clamped at both ends, so a
+        score below everything measured reads as the lowest stored percentile
+        rather than as zero, and one above everything reads as the highest.
+        Returns None when no calibration has been recorded.
+        """
+        points = self.breakpoints or []
+        if not points:
+            return None
+        if score <= points[0][1]:
+            return float(points[0][0])
+        if score >= points[-1][1]:
+            return float(points[-1][0])
+        for (p_low, c_low), (p_high, c_high) in zip(points, points[1:]):
+            if c_low <= score <= c_high:
+                if c_high == c_low:
+                    return float(p_high)
+                ratio = (score - c_low) / (c_high - c_low)
+                return round(float(p_low) + ratio * (float(p_high) - float(p_low)), 1)
+        return float(points[-1][0])
 
 
 class ProjectPerson(models.Model):

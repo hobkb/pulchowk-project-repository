@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import BrowseProjects from "./pages/BrowseProjects";
+import SimilarWorkCheck from "./pages/SimilarWorkCheck";
 import ProjectDetails from "./pages/ProjectDetails";
 import Notifications from "./pages/Notifications";
 import SavedProjects from "./pages/SavedProjects";
@@ -159,6 +160,18 @@ export default function App() {
 
         <Route path="/dashboard" element={<Shell><Dashboard /></Shell>} />
         <Route path="/projects" element={<Shell><BrowseProjects /></Shell>} />
+        {/* Major and Minor are addressable categories, not filter state: the
+            route fixes the type and the page keeps the rest of the search
+            and filter behaviour. */}
+        <Route
+          path="/projects/major"
+          element={<Shell><BrowseProjects projectType="Major" heading="Major projects" /></Shell>}
+        />
+        <Route
+          path="/projects/minor"
+          element={<Shell><BrowseProjects projectType="Minor" heading="Minor projects" /></Shell>}
+        />
+        <Route path="/similar-work-check" element={<Shell><SimilarWorkCheck /></Shell>} />
         <Route path="/projects/:id" element={<Shell><ProjectDetails /></Shell>} />
         <Route path="/bookmarks" element={<Shell><SavedProjects /></Shell>} />
         <Route path="/notifications" element={<Shell><Notifications /></Shell>} />

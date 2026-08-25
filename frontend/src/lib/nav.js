@@ -18,7 +18,20 @@ export function isAdminUser(user) {
 
 export const PRIMARY_NAV = [
   { to: "/dashboard", label: "Home", end: true },
-  { to: "/projects", label: "Projects" },
+  {
+    to: "/projects",
+    label: "Projects",
+    end: true,
+    // Major and Minor are real routes, not filter state buried in the
+    // catalogue page: they are how the department talks about its own work,
+    // so they get addresses that can be linked and bookmarked.
+    children: [
+      { to: "/projects", label: "All projects", end: true },
+      { to: "/projects/major", label: "Major projects" },
+      { to: "/projects/minor", label: "Minor projects" },
+    ],
+  },
+  { to: "/similar-work-check", label: "Similar work check" },
   { to: "/bookmarks", label: "Saved" },
   { to: "/assistant", label: "Research assistant" },
 ];

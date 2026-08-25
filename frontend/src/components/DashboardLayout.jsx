@@ -70,9 +70,26 @@ export default function DashboardLayout({ children }) {
             <div className="identity-rule h-1 shrink-0" aria-hidden="true" />
             <div className="flex-1 overflow-y-auto py-3">
               {PRIMARY_NAV.map((item) => (
-                <NavLink key={item.to} to={item.to} end={item.end} className={drawerLink}>
-                  {item.label}
-                </NavLink>
+                <div key={item.to}>
+                  <NavLink to={item.to} end={item.end} className={drawerLink}>
+                    {item.label}
+                  </NavLink>
+                  {/* Sub-sections are indented rather than hidden behind a
+                      disclosure: there are two of them, and the drawer is
+                      already a vertical list. */}
+                  {item.children?.map((child) => (
+                    <NavLink
+                      key={child.to}
+                      to={child.to}
+                      end={child.end}
+                      className={({ isActive }) =>
+                        `${drawerLink({ isActive })} pl-9 text-[0.9rem]`
+                      }
+                    >
+                      {child.label}
+                    </NavLink>
+                  ))}
+                </div>
               ))}
 
               <p className="px-5 pb-1 pt-5 text-xs font-semibold text-ink-3">Your account</p>

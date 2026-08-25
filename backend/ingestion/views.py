@@ -40,6 +40,7 @@ from ingestion.pipeline.utils.text_cleaners import (
 from core.responses import success_response
 from ingestion.pipeline.utils.heading_locator import locate_heading_page
 from notifications.services import NotificationService
+from repository.indexing import defer_indexing, queue_project_indexing
 
 
 class StandardResultsSetPagination(PageNumberPagination):
@@ -599,7 +600,7 @@ class JobPublishAPIView(APIView):
             if project is None:
                 raise ValidationError({"detail": "No published project found for this job."})
 
-            with transaction.atomic():
+            with defer_indexing(), transaction.atomic():
                 # Replace all existing sections
                 project.sections.all().delete()
                 self._create_sections(project, payload.get("project_sections", []))
@@ -617,6 +618,8 @@ class JobPublishAPIView(APIView):
                 )
 
                 NotificationService.notify_job_published(job, project)
+
+            queue_project_indexing(project.pk)
 
             return success_response(
                 data={"project_id": str(project.id)},
@@ -651,7 +654,7 @@ class JobPublishAPIView(APIView):
         campus_name = (project_fields.get("campus_name") or "Unknown Campus").strip()
         research_group_name = (project_fields.get("research_group_name") or "").strip()
     
-        with transaction.atomic():
+        with defer_indexing(), transaction.atomic():
             campus = Campus.objects.filter(name__iexact=campus_name).first()
 
             # Resolve the department against the canonical six. The stored
@@ -880,7 +883,21 @@ class JobPublishAPIView(APIView):
             )
 
             NotificationService.notify_job_published(job, project)
-    
+
+        # Publication is the moment a project becomes part of the catalogue,
+        # so it is the moment it has to become findable. The lexical vector is
+        # already written: the save signal rebuilds it inside the transaction
+        # above. The embedding is queued here, once, after the transaction has
+        # committed.
+        #
+        # Queued here rather than left to the per-save signal because
+        # publishing writes the project, then its people, then its sections,
+        # keywords, domains and references. Each of those is a save, and each
+        # would queue its own embedding task for the same project. Deferring
+        # across the write and queueing once at the end costs one model load
+        # instead of six, and the digest check makes the result identical.
+        queue_project_indexing(project.pk)
+
         return success_response(
             data={
                 "project_id": str(project.id),

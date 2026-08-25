@@ -17,6 +17,14 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), tailwindcss()],
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      setupFiles: './src/test/setup.js',
+      // Only unit tests. The build output and node_modules are not test
+      // material and scanning them makes a two-second run take much longer.
+      include: ['src/**/*.test.{js,jsx}'],
+    },
     server: {
       proxy: {
         '/api': {

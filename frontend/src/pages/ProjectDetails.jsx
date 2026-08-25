@@ -23,7 +23,8 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { isAdminUser } from "../lib/nav";
 import { RestrictedReport } from "../components/RestrictedReport";
-import { academicLevelLabel, batchLabel } from "../lib/labels";
+import SharedConcepts from "../components/SharedConcepts";
+import { academicLevelLabel } from "../lib/labels";
 import { useToast } from "../context/ToastContext";
 import {
   Alert,
@@ -528,6 +529,10 @@ export default function ProjectDetails() {
 
   const [project, setProject] = useState(null);
   const [related, setRelated] = useState([]);
+  // Distinguished from "related is empty": an empty list is a real answer for
+  // a third of the catalogue, and it must not be shown while the request is
+  // still in flight.
+  const [relatedLoading, setRelatedLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [requestOpen, setRequestOpen] = useState(false);
@@ -553,14 +558,22 @@ export default function ProjectDetails() {
         if (cancelled) return;
         const found = body.data;
         setProject(found);
+        // Semantic neighbours, not department-mates. The server excludes this
+        // project, applies the calibrated threshold and may legitimately
+        // return nothing, which is the point: an unrelated project from the
+        // same department is worse than an empty panel.
+        setRelatedLoading(true);
         return projectsApi
-          .list({ department: found.department, page_size: 5 })
-          .then((listBody) => {
+          .similar(id)
+          .then((simBody) => {
             if (cancelled) return;
-            setRelated((listBody.data || []).filter((p) => p.id !== found.id).slice(0, 4));
+            setRelated(simBody.data || []);
           })
           .catch(() => {
             if (!cancelled) setRelated([]);
+          })
+          .finally(() => {
+            if (!cancelled) setRelatedLoading(false);
           });
       })
       .catch((err) => {
@@ -878,22 +891,29 @@ export default function ProjectDetails() {
               )}
             </section>
 
-            {related.length > 0 && (
+            {/* Similar projects.
+                Semantic neighbours, not department-mates. The server excludes
+                this project, applies the calibrated threshold and returns at
+                most five. About a third of the catalogue has no project that
+                clears the threshold, and for those the honest answer is to say
+                so rather than to fall back on the nearest unrelated work. */}
+            {!relatedLoading && (
               <section className="mt-9">
-                <SectionHeading
-                  title="Other projects from this department"
-                  actions={
-                    <Link to={`/projects?department=${encodeURIComponent(project.department)}`}>
-                      View all
-                    </Link>
-                  }
-                />
+                <SectionHeading title="Similar projects" />
+                {related.length === 0 ? (
+                  <p className="mt-3 text-sm leading-relaxed text-ink-2">
+                    No closely related projects found. Nothing else in the
+                    repository is close enough in subject matter to list here.
+                  </p>
+                ) : (
+                <>
                 {/* Cards rather than a bare list: at a glance a reader is
                     deciding whether a neighbouring project is worth
                     opening, and a title alone does not answer that. The
                     first line of the abstract and the supervisor do. */}
                 <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {related.map((item) => {
+                  {related.map((entry) => {
+                    const item = entry.project;
                     // Already formatted by the serializer as
                     // "Asst. Prof. Dr. Ram Shrestha" -- rank included.
                     const supervisor = (item.supervisors || [])[0];
@@ -904,24 +924,27 @@ export default function ProjectDetails() {
                           className="group flex h-full flex-col rounded-sm border border-line bg-white p-4 no-underline transition-colors hover:border-line-strong hover:bg-band"
                         >
                           <div className="flex flex-wrap items-center gap-1.5">
-                            {item.academic_level && (
-                              <Status tone="neutral">
-                                {academicLevelLabel(item.academic_level)}
-                              </Status>
+                            {item.project_type && (
+                              <span className="text-xs text-ink-3">{item.project_type}</span>
                             )}
-                            {item.batch && (
-                              <span className="text-xs text-ink-3 tnum">
-                                Batch {batchLabel(item.batch)}
-                              </span>
-                            )}
-                            {item.cluster && (
-                              <span className="text-xs text-ink-3">{item.cluster}</span>
+                            {item.department && (
+                              <span className="text-xs text-ink-3">{item.department}</span>
                             )}
                           </div>
 
                           <p className="mt-2 text-sm font-semibold text-ink group-hover:text-primary">
                             {item.title}
                           </p>
+
+                          {/* What the two projects actually have in common,
+                              in place of the band and percentile that used to
+                              sit here. Renders nothing when the repository
+                              holds too little recorded subject matter to say,
+                              rather than reaching for a generic term. */}
+                          <SharedConcepts
+                            terms={entry.shared_concepts}
+                            className="mt-1.5"
+                          />
 
                           {item.abstract && (
                             <p className="mt-1.5 line-clamp-3 text-xs leading-relaxed text-ink-2">
@@ -937,6 +960,8 @@ export default function ProjectDetails() {
                     );
                   })}
                 </ul>
+                </>
+                )}
               </section>
             )}
           </div>

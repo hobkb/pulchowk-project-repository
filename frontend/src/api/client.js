@@ -110,6 +110,14 @@ export const projectsApi = {
         return request(`repository/projects/${qs ? `?${qs}` : ""}`, {method: "GET", ...options});
     },
     detail: (id, options = {}) => request(`repository/projects/${id}/`, {method: "GET", ...options}),
+    // Projects semantically close to this one. The server applies the
+    // calibrated threshold and returns, for each result, the subject matter
+    // it shares with this project. It deliberately returns no score, band or
+    // percentile: those describe the size of a number rather than the
+    // relationship, and a reader has no use for them. An empty list is a real
+    // answer, and so is an empty `shared_concepts` on a result that stands.
+    similar: (id, options = {}) =>
+        request(`repository/projects/${id}/similar/`, {method: "GET", ...options}),
     // The filter values that actually occur among published projects,
     // with counts — so the browse filters offer nothing that matches zero
     // records.
@@ -122,6 +130,16 @@ export const projectsApi = {
         ).toString();
         return request(`repository/projects/facets/${qs ? `?${qs}` : ""}`, {method: "GET"});
     },
+};
+
+// Similar Work Check: compare a proposed project against the repository.
+// Nothing about the proposal is stored server-side.
+export const similarityApi = {
+    check: (payload) =>
+        request("repository/similarity-check/", {
+            method: "POST",
+            body: JSON.stringify(payload),
+        }),
 };
 
 export const accessRequestsApi = {
