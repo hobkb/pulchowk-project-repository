@@ -1,16 +1,14 @@
-"""
-Shared vocabulary for portable project bundles.
+"""Shared vocabulary for portable project bundles.
 
-Three people ingesting different PDFs on three local databases cannot merge
-by shipping SQL: every database numbers its rows from 1, so the primary
-keys collide, and the same supervisor extracted on two machines becomes two
-different rows that split his project list in the catalogue.
+Separate databases cannot merge by shipping SQL: every database numbers rows
+from 1, so primary keys collide, and the same person extracted on two
+machines becomes two rows that split their project list.
 
-A bundle sidesteps both problems by never moving an id. Everything is
-addressed by a NATURAL key -- a person by roll number or name, a keyword by
-its word, a department by its canonical name -- and the importing database
-assigns its own ids. That makes the merge order-independent and repeatable:
-importing the same bundle twice changes nothing the second time.
+A bundle never moves an id. Everything is addressed by a natural key -- a
+person by roll number or name, a keyword by its word, a department by its
+canonical name -- and the importing database assigns its own ids. The merge
+is therefore order-independent and repeatable: importing the same bundle
+twice changes nothing the second time.
 """
 
 import hashlib

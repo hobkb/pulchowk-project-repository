@@ -1,16 +1,3 @@
-"""Why a recommendation says what it says.
-
-Similar Projects and the Similar Work Check no longer report a band or a
-percentile. They report the subject matter two pieces of work share, and the
-value of that is entirely in what it refuses to say: a term has to be genuine
-subject matter, rare enough to distinguish this pair from any other, and
-recorded on the project rather than inferred. Where nothing qualifies the
-answer is silence.
-
-Every fixture here is invented. The corpus these tests build has nothing to
-do with the real one, so a failure diff can only ever print terms written in
-this file.
-"""
 
 from django.test import TestCase
 from django.urls import reverse
@@ -18,6 +5,7 @@ from rest_framework.test import APIClient
 
 from repository.explanations import (
     MAX_TERMS,
+    MIN_SHARED_CONCEPTS,
     concept_shared_concepts,
     shared_concepts,
 )
@@ -25,9 +13,6 @@ from organization.models import Campus, Department
 from repository.models import Keyword, Project, ProjectKeyword
 from repository.search_index import update_search_vector
 
-# The rarity cut-off is a share of the corpus, so the corpus has to be big
-# enough for "rare" to mean anything. At this size the cut-off lands at two
-# projects, which makes every fixture below easy to reason about.
 CORPUS = 25
 
 
@@ -69,28 +54,80 @@ class SharedConceptTests(ExplanationTestBase):
     def setUp(self):
         self.fill_corpus()
 
-    def test_a_shared_keyword_is_offered_as_the_reason(self):
+    def test_shared_keywords_are_offered_as_the_reason(self):
+        left = self.make_project(
+            "Hiding data in images",
+            keywords=["Steganography", "Watermarking"],
+        )
+        right = self.make_project(
+            "Recovering hidden payloads",
+            keywords=["Steganography", "Watermarking"],
+        )
+        self.assertEqual(
+            sorted(self.explain(left, right)),
+            ["Steganography", "Watermarking"],
+        )
+
+    def test_one_shared_concept_is_not_enough_to_recommend(self):
+        """The rule this exists for. Two projects coinciding on a single
+        term is the sort of thing that happens by chance across any
+        engineering catalogue, and a recommendation resting on it cannot be
+        justified to the reader, so nothing is returned at all."""
         left = self.make_project("Hiding data in images",
                                  keywords=["Steganography"])
         right = self.make_project("Recovering hidden payloads",
                                   keywords=["Steganography"])
-        self.assertEqual(self.explain(left, right), ["Steganography"])
+        self.assertEqual(self.explain(left, right), [])
+
+    def test_one_concept_plus_generic_words_is_still_not_enough(self):
+        """The generic words are common by construction, so they never
+        count, and what is left is a single concept."""
+        left = self.make_project(
+            "A platform for concealment",
+            abstract="A platform built for coursework.",
+            keywords=["Steganography"],
+        )
+        right = self.make_project(
+            "A platform for retrieval",
+            abstract="A platform built for coursework.",
+            keywords=["Steganography"],
+        )
+        self.assertEqual(self.explain(left, right), [])
+
+    def test_the_concept_threshold_is_the_configured_one(self):
+       
+        vocabulary = [
+            ["Steganography", "Watermarking", "Ciphertext"],
+            ["Interferometer", "Deflection", "Cantilever"],
+            ["Electrophoresis", "Chromatography", "Titration"],
+        ]
+        for count, words in enumerate(vocabulary, start=1):
+            with self.subTest(concepts=count):
+                shared = words[:count]
+                left = self.make_project("Left %d" % count, keywords=shared)
+                right = self.make_project("Right %d" % count, keywords=shared)
+                terms = self.explain(left, right)
+                if count >= MIN_SHARED_CONCEPTS:
+                    self.assertEqual(len(terms), min(count, MAX_TERMS))
+                else:
+                    self.assertEqual(terms, [])
 
     def test_a_common_word_is_never_offered(self):
-        """The filler corpus makes "platform" common. Two projects that share
-        it share nothing worth saying, and the rarity rule has to work that
-        out from the corpus rather than from a list of banned words."""
+       
         left = self.make_project("A platform for scheduling")
         right = self.make_project("A platform for messaging")
         self.assertEqual(self.explain(left, right), [])
 
     def test_a_rare_term_survives_alongside_a_common_one(self):
-        """Both projects share "platform", which the corpus makes common, and
-        "Steganography", which it does not. Only the second is a reason."""
-        left = self.make_project("A platform for hiding messages",
-                                 keywords=["Steganography"])
-        right = self.make_project("A platform for finding hidden messages",
-                                  keywords=["Steganography"])
+        
+        left = self.make_project(
+            "A platform for hiding messages",
+            keywords=["Steganography", "Watermarking"],
+        )
+        right = self.make_project(
+            "A platform for finding hidden messages",
+            keywords=["Steganography", "Watermarking"],
+        )
         terms = self.explain(left, right)
         self.assertIn("Steganography", terms)
         self.assertNotIn("Platform", terms)
@@ -105,26 +142,34 @@ class SharedConceptTests(ExplanationTestBase):
     def test_a_multi_word_keyword_stays_whole(self):
         """"Secure Communication" is one concept. Split into two chips it
         reads as two, and "Secure" on its own says nothing."""
-        left = self.make_project("Left", keywords=["Secure Communication"])
-        right = self.make_project("Right", keywords=["Secure Communication"])
-        self.assertEqual(self.explain(left, right), ["Secure Communication"])
+        left = self.make_project(
+            "Left", keywords=["Secure Communication", "Steganography"]
+        )
+        right = self.make_project(
+            "Right", keywords=["Secure Communication", "Steganography"]
+        )
+        self.assertIn("Secure Communication", self.explain(left, right))
 
     def test_inflections_of_a_term_are_recognised_as_one_concept(self):
         """Terms are matched as lexemes, so a keyword and a title word that
         differ only by inflection count as the same concept. This is
         inflection and not derivation: the analyser unifies "encryption" with
         "encrypting", and would not unify it with "cryptographic"."""
-        left = self.make_project("Left", keywords=["Encryption"])
-        right = self.make_project("Encrypting telemetry at the sensor")
-        self.assertEqual(self.explain(left, right), ["Encryption"])
+        left = self.make_project("Left steganography",
+                                 keywords=["Encryption"])
+        right = self.make_project("Encrypting steganography telemetry")
+        self.assertIn("Encryption", self.explain(left, right))
 
     def test_a_curated_keyword_is_preferred_to_a_title_word(self):
         """Both projects record the concept, one as a keyword and one only in
         its title. The keyword is what an author chose to call the subject, so
         it is the better label for it."""
-        left = self.make_project("Left", keywords=["Encryption"])
-        right = self.make_project("Encrypting telemetry at the sensor")
-        self.assertEqual(self.explain(left, right), ["Encryption"])
+        left = self.make_project("Left steganography",
+                                 keywords=["Encryption"])
+        right = self.make_project("Encrypting steganography telemetry")
+        terms = self.explain(left, right)
+        self.assertIn("Encryption", terms)
+        self.assertNotIn("Encrypting", terms)
 
     def test_nothing_in_common_yields_no_explanation(self):
         """A recommendation with no stated reason is honest. This is the case
@@ -153,12 +198,13 @@ class SharedConceptTests(ExplanationTestBase):
     def test_an_anchored_term_confirmed_by_an_abstract_is_enough(self):
         """The other half of the same rule: subject matter for one project,
         discussed in the other, is a real relationship."""
-        left = self.make_project("Left", keywords=["Interferometer"])
+        left = self.make_project("Left",
+                                 keywords=["Interferometer", "Deflection"])
         right = self.make_project(
             "Bridge deflection under load",
-            abstract="Displacement was measured with an interferometer.",
+            abstract="Displacement and deflection were measured with an interferometer.",
         )
-        self.assertEqual(self.explain(left, right), ["Interferometer"])
+        self.assertIn("Interferometer", self.explain(left, right))
 
     def test_a_shared_supervisor_or_department_is_not_a_reason(self):
         """Department, cluster and intake year live in weight D of the search
@@ -176,8 +222,10 @@ class SharedConceptTests(ExplanationTestBase):
         self.assertEqual(self.explain(left, right), [])
 
     def test_the_rarest_term_comes_first(self):
-        for index in range(4):
-            self.make_project("Bystander %d" % index, keywords=["Cryptography"])
+        # One bystander, so Cryptography is rarer than the cut-off but still
+        # commoner than Steganography. More would push it out entirely and the
+        # pair would fall below the two-concept rule for the wrong reason.
+        self.make_project("Bystander", keywords=["Cryptography"])
         left = self.make_project("Left",
                                  keywords=["Cryptography", "Steganography"])
         right = self.make_project("Right",
@@ -186,18 +234,25 @@ class SharedConceptTests(ExplanationTestBase):
 
     def test_an_unpublished_project_does_not_count_towards_rarity(self):
         for index in range(6):
-            self.make_project("Draft %d" % index, keywords=["Steganography"],
+            self.make_project("Draft %d" % index,
+                              keywords=["Steganography", "Watermarking"],
                               status="Processing")
-        left = self.make_project("Left", keywords=["Steganography"])
-        right = self.make_project("Right", keywords=["Steganography"])
-        self.assertEqual(self.explain(left, right), ["Steganography"])
+        left = self.make_project("Left",
+                                 keywords=["Steganography", "Watermarking"])
+        right = self.make_project("Right",
+                                  keywords=["Steganography", "Watermarking"])
+        self.assertIn("Steganography", self.explain(left, right))
 
     def test_casing_recorded_on_the_keyword_is_preserved(self):
         """Acronyms must not be flattened, and a lower-case keyword should not
         be shouted back at the reader."""
-        left = self.make_project("Left", keywords=["LoRa telemetry"])
-        right = self.make_project("Right", keywords=["LoRa telemetry"])
-        self.assertEqual(self.explain(left, right), ["LoRa Telemetry"])
+        left = self.make_project(
+            "Left", keywords=["LoRa telemetry", "Steganography"]
+        )
+        right = self.make_project(
+            "Right", keywords=["LoRa telemetry", "Steganography"]
+        )
+        self.assertIn("LoRa Telemetry", self.explain(left, right))
 
 
 class SmallCorpusTests(ExplanationTestBase):
@@ -205,8 +260,10 @@ class SmallCorpusTests(ExplanationTestBase):
         """With a handful of projects every term looks rare, so rarity carries
         no information and any explanation drawn from it would be an
         accident."""
-        left = self.make_project("Left", keywords=["Steganography"])
-        right = self.make_project("Right", keywords=["Steganography"])
+        left = self.make_project("Left",
+                                 keywords=["Steganography", "Watermarking"])
+        right = self.make_project("Right",
+                                  keywords=["Steganography", "Watermarking"])
         self.assertEqual(shared_concepts(left, [right])[right.pk], [])
 
 
@@ -252,10 +309,14 @@ class ExplanationEndpointTests(ExplanationTestBase):
 
     def setUp(self):
         self.fill_corpus()
-        self.subject = self.make_project("Hiding data in images",
-                                         keywords=["Steganography"])
-        self.neighbour = self.make_project("Recovering hidden payloads",
-                                           keywords=["Steganography"])
+        self.subject = self.make_project(
+            "Hiding data in images",
+            keywords=["Steganography", "Watermarking"],
+        )
+        self.neighbour = self.make_project(
+            "Recovering hidden payloads",
+            keywords=["Steganography", "Watermarking"],
+        )
         self.api = APIClient()
 
     def _payload(self):
@@ -277,3 +338,10 @@ class ExplanationEndpointTests(ExplanationTestBase):
     def test_no_row_carries_a_score_band_or_percentile(self):
         for row in self._payload():
             self.assertEqual(set(row), {"project", "shared_concepts"})
+
+    def test_every_listed_row_carries_a_reason(self):
+        """The endpoint drops what it cannot justify, so an empty explanation
+        can never reach the page: a recommendation and its reason arrive
+        together or not at all."""
+        for row in self._payload():
+            self.assertTrue(row["shared_concepts"])

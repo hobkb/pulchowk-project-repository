@@ -1,11 +1,4 @@
-"""
-Free-text search over the catalogue.
 
-The search box is ordinary substring matching over stored fields -- there
-is no ranking model behind it. These cover what a reader actually types:
-a supervisor's surname, a rank, a cluster code, and combinations that span
-more than one field.
-"""
 
 from django.urls import reverse
 from rest_framework.test import APITestCase

@@ -1,30 +1,20 @@
-"""
-TEMPORARY ingestion debugging/QA tool.
+"""Run the real extraction pipeline against PDFs outside the upload flow.
 
-Runs the real extraction pipeline (PDF layout extraction -> line
-reconstruction -> page classification -> front-matter/people/section
-metadata) against one or more PDFs, OUTSIDE of the normal upload/Celery
-flow, and writes the resulting structured JSON to disk for inspection with
-validate_ingestion.py. It creates one throwaway IngestionJob per PDF to run
-the real pipeline steps against (they're written the same way the existing
-synthetic-PDF test suite drives the pipeline), then deletes that job, its
-logs, and its uploaded file copy immediately afterward -- nothing from this
-command is left in the real jobs table.
+Writes the resulting structured JSON to disk for inspection with
+validate_ingestion.py. Creates one throwaway IngestionJob per PDF to drive
+the real pipeline steps, then deletes that job, its logs and its uploaded
+file copy -- nothing is left in the jobs table.
 
-This is intentionally kept separate from the production upload/publish
-path: it does not touch views, serializers, models, or API contracts, and
-can be deleted later without affecting the application.
+Kept separate from the production upload/publish path: it touches no views,
+serializers, models or API contracts and can be deleted without affecting the
+application.
 
-Usage:
-    python manage.py extract_debug_json path/to/report.pdf
-    python manage.py extract_debug_json path/to/report.pdf --out out.json
-    python manage.py extract_debug_json path/to/pdf_dir/ --out-dir path/to/json_dir/
+    python manage.py extract_debug_json path/to/report.pdf [--out out.json]
+    python manage.py extract_debug_json path/to/pdf_dir/ --out-dir json_dir/
 
-Confidentiality note: this command is meant for PDFs you're allowed to
-inspect (synthetic/self-authored test PDFs, or your own real submissions).
-It does not print any extracted text to the terminal -- only file paths and
-counts -- but the JSON files it writes DO contain full extracted text, so
-treat their output directory with the same care as the source PDFs.
+Confidentiality: the terminal output carries only paths and counts, but the
+JSON files this writes DO contain full extracted text. Treat the output
+directory with the same care as the source PDFs.
 """
 
 import json

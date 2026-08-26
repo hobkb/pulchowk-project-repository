@@ -1,33 +1,25 @@
-"""
-Re-runs people extraction (authors + supervisors) against the ORIGINAL PDF
-of already-published projects and fills in what the older, weaker extraction
-logic missed -- principally supervisors, which were being dropped for most
-documents because supervisor detection previously required an exact bare
-"Supervisor" label line.
+"""Re-run people extraction against the original PDFs of published projects.
 
-Additive by design. It only ever CREATES ProjectPerson rows that are absent;
-it never edits, re-roles, or deletes an existing person, never touches
-project fields, sections, keywords, or references, and never changes a
-project's status. So a record an admin has already corrected by hand cannot
-be overwritten by re-running this.
+Backfills what the earlier extraction missed -- principally supervisors,
+which were dropped for most documents because detection required an exact
+bare "Supervisor" label line.
 
-The extracted payload stored on the job is not re-used, because for these
-older jobs it is precisely the artifact of the old logic. The real PDF is
-re-run through the same extraction steps the live pipeline uses
-(PDFExtractionStep -> ... -> MetadataPeopleStep) so results match exactly
-what a fresh upload would produce today.
+Additive only: it creates absent ProjectPerson rows and never edits, re-roles
+or deletes an existing one, never touches project fields, sections, keywords
+or references, and never changes status. A record an admin has corrected by
+hand cannot be overwritten by re-running this.
 
-Usage:
-    python manage.py reprocess_people --dry-run          # report only, no writes
-    python manage.py reprocess_people                    # fill in missing supervisors
-    python manage.py reprocess_people --include-authors  # also add missing authors
-    python manage.py reprocess_people --project-id 12    # one project
-    python manage.py reprocess_people --all-projects     # include ones that already
-                                                         # have a supervisor
+The payload stored on the job is not reused -- for these older jobs it is
+precisely the artifact of the old logic. The PDF is re-run through the same
+steps the live pipeline uses, so results match a fresh upload.
 
-Confidentiality note: this reads real uploaded project PDFs. It prints only
-counts and extracted person NAMES (which are published metadata anyway) --
-never document body text.
+    python manage.py reprocess_people --dry-run
+    python manage.py reprocess_people [--include-authors] [--all-projects]
+    python manage.py reprocess_people --project-id 12
+
+Confidentiality: reads real uploaded PDFs. Prints counts and extracted person
+names; never document body text. Exception handlers report the exception
+class, not its message, because a file error embeds the path it failed on.
 """
 
 from collections import Counter

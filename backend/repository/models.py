@@ -112,18 +112,13 @@ class ProjectAsset(models.Model):
 class ProjectEmbedding(models.Model):
     """One semantic vector for one project under one embedding model.
 
-    Kept in its own table rather than as a column on Project for three
-    reasons. A model migration can write the new vectors alongside the old
-    ones and only then switch over, so search is never served from a
-    half-rebuilt index. The freshness bookkeeping (which model, which source
-    text, generated when) stays out of the project row that the catalogue
-    reads on every request. And when section-level embeddings are added for
-    retrieval-augmented answering later, they become a sibling table rather
-    than a second set of columns here.
+    A separate table rather than columns on Project: a model migration can
+    write new vectors alongside the old and switch over afterwards, so search
+    is never served from a half-rebuilt index; the freshness bookkeeping
+    stays out of the row the catalogue reads on every request; and
+    section-level vectors can later be a sibling table.
 
-    `source_hash` is the digest of the exact text that was embedded. An
-    embedding is stale when that digest no longer matches the text the
-    current representation would produce, which makes regeneration a pure
+    `source_hash` is the digest of the exact embedded text, so staleness is a
     function of content rather than a guess about which fields changed.
     """
 
@@ -165,20 +160,15 @@ class ProjectEmbedding(models.Model):
 class SimilarityCalibration(models.Model):
     """Where a raw cosine sits in this corpus.
 
-    Cosine has no absolute meaning here. Every project is an undergraduate
-    engineering report from one department written in a similar house style,
-    so two unrelated projects still score a median of about 0.64 and reach
-    0.82 at the ninety-ninth percentile. Telling a reader "0.79" is therefore
-    close to meaningless; telling them the score is higher than 97% of
-    arbitrary pairs in this repository is not.
+    Cosine has no absolute meaning here: every project is an undergraduate
+    report from one department in a similar house style, so two unrelated
+    projects score a median of about 0.64 and reach 0.82 at the 99th
+    percentile.
 
     `breakpoints` is the random-pair distribution measured by
-    `manage.py search_eval`, stored as ascending [percentile, cosine] pairs.
-    One row per embedding model, because the distribution belongs to the
-    model as much as to the corpus.
-
-    `corpus_size` is recorded so a calibration measured on 95 projects is
-    visibly a calibration measured on 95 projects once there are a thousand.
+    `manage.py search_eval`, as ascending [percentile, cosine] pairs. One row
+    per embedding model -- the distribution belongs to the model as much as
+    to the corpus. `corpus_size` records what it was measured on.
     """
 
     model_version = models.CharField(max_length=64, unique=True)

@@ -1,29 +1,23 @@
 """Retrieval evaluation: query sets, metrics and the branch comparison.
 
-Ground truth
-------------
-The repository holds no relevance judgements. Nothing records that a given
-query ought to return a given project, and none is invented here. What is
-available instead is *known-item retrieval*: a query is derived from a
-project, so the one correct answer is known without any labelling.
+The repository holds no relevance judgements and none are invented here.
+Evaluation is therefore *known-item retrieval*: each query is derived from a
+project, so the one correct answer is known without labelling.
 
-That supports honest Precision@1, Recall@k, MRR and nDCG, and it is enough to
+That supports honest Precision@1, Recall@k, MRR and nDCG, and is enough to
 compare lexical, semantic and fused ranking against each other. It is not a
-measurement of general relevance, and it must not be reported as one: it says
-whether the system can find a specific project from a description of it, not
-whether the other nine results were any good.
+measurement of general relevance and must not be reported as one -- it says
+whether a specific project can be found from a description of it, not whether
+the other results were any good.
 
-Three query strategies, because each favours a different branch and reporting
-only one would be misleading:
+Three query strategies, each favouring a different branch:
 
-    title          the exact title. Trivial for lexical search; included to
-                   confirm exact-match behaviour rather than to compare.
-    keywords       the project's own keyword list. Wording that overlaps the
-                   document but is not the title.
-    title_subset   a contiguous run of words from the middle of the title,
-                   which is closer to how somebody half-remembers a project.
+    title          exact title; confirms exact-match behaviour
+    keywords       overlaps the document without being the title
+    title_subset   a contiguous run from the middle of the title, closest to
+                   how somebody half-remembers a project
 
-A labelled query set can be supplied instead once one exists, as JSON:
+A labelled set can be supplied instead once one exists, as JSON:
 
     [{"query": "...", "relevant_ids": [12, 41]}, ...]
 

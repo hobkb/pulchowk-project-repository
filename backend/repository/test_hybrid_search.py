@@ -1,10 +1,3 @@
-"""Lexical, semantic and fused retrieval, plus Major/Minor filtering.
-
-The embedding model is not loaded. Semantic ranking is exercised against
-hand-built vectors and, where a query has to be encoded, `embed_query` is
-stubbed, so these tests assert on fusion and filtering rather than on what a
-neural network produces on a given day.
-"""
 
 import math
 from unittest.mock import patch

@@ -1,36 +1,24 @@
 #!/usr/bin/env python3
-"""
-Ingestion QA / validation tool (TEMPORARY, standalone -- see the extraction
-architecture notes in ingestion/pipeline/utils/section_tree.py for context).
+"""Standalone ingestion QA tool.
 
-Independently scans the debug JSON produced by
-`python manage.py extract_debug_json ...` (or any JSON matching the same
-shape) and reports suspicious extraction problems. It never modifies the
-JSON it reads, never "fixes" anything, and has no Django dependency -- it
-is a plain, standalone Python script so it can be run directly:
+Scans the debug JSON written by `manage.py extract_debug_json` and reports
+suspicious extraction patterns. Read-only, and deliberately free of any
+Django dependency so it can be run directly:
 
-    python validate_ingestion.py path/to/project.json
-    python validate_ingestion.py path/to/project.json --verbose
-    python validate_ingestion.py path/to/ingestion_json_dir/
+    python validate_ingestion.py path/to/project.json [--verbose]
+    python validate_ingestion.py path/to/json_dir/
 
-The goal is to surface RECURRING patterns across many documents so the
-actual extraction pipeline can be improved -- not to certify any single
-document as "correct". A document with unusual but genuine structure is
-expected to produce some findings; that is a prompt to look, not proof of
-a bug.
+It surfaces recurring patterns across many documents so the pipeline can be
+improved; it does not certify any single document. Unusual but genuine
+structure is expected to produce findings.
 
-CONFIDENTIALITY: this tool's entire output -- both per-file reports and the
-batch summary -- is designed to never contain any real extracted text.
-Sections are identified by a purely positional address ("1", "1.2", "1.2.3"
--- the 1-based sibling index at each tree level), never by their actual
-heading. People are identified by role and index ("Author #2", "Supervisor
-candidate #1"), never by name. Repeated-line and leakage findings describe
-what was found (word counts, category names from a small fixed vocabulary,
-counts, confidence scores) without ever quoting the line or section content
-itself. This means the ENTIRE terminal output of this script is safe to
-paste anywhere -- including directly into a chat with an AI assistant --
-without redacting anything: cross-reference an address like "3.2" against
-your own copy of the JSON file to see what it actually is.
+Confidentiality: the output cannot contain extracted text. Sections are
+addressed positionally ("1.2.3" -- the 1-based sibling index at each tree
+level), never by heading. People are identified by role and index
+("Supervisor candidate #1"), never by name. Findings report counts, category
+names from a fixed vocabulary and confidence scores, never the line or
+section they describe. The full terminal output is therefore safe to share
+unredacted; cross-reference an address against your own copy of the JSON.
 """
 
 from __future__ import annotations

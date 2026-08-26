@@ -1,22 +1,18 @@
-"""
-The document's own Table of Contents, read as the authoritative outline.
+"""The document's own Table of Contents, read as the authoritative outline.
 
-Font size and boldness are a *guess* at which lines are headings. The ToC
-is the author's own explicit statement of it, and it is the only place in
-the report that distinguishes a real subsection from a numbered list item
-inside one. "4.4.1 FastAPI" appears in the ToC; the "1. 2. 3." enumerating
-functional requirements underneath it does not -- yet on the page both are
-a short numbered line, often bold, and no typographic rule can separate
-them. Reading the ToC removes the guesswork entirely.
+Font size and boldness are a guess at which lines are headings; the ToC is
+the author's explicit statement of it. It is also the only place that
+distinguishes a real subsection from a numbered list item inside one -- a
+subsection appears in the ToC, the "1. 2. 3." enumerating requirements
+beneath it does not, yet on the page both are short numbered lines, often
+bold, and no typographic rule separates them.
 
-Only NUMBERED entries are taken, which is also what makes the outline start
-at "1 Introduction": the front matter above it (Approval, Acknowledgements,
-Abstract, Contents, List of Figures) is unnumbered and is skipped as a
-consequence of the same rule, not as a special case.
+Only numbered entries are taken. That is also why the outline starts at the
+first numbered section: unnumbered front matter is skipped as a consequence
+of the same rule rather than as a special case.
 
-Nothing here prints or returns document text to a caller that logs it --
 `parse_toc_outline` returns structured entries for the section builder to
-match against, and the builder only ever reports counts.
+match against; the builder reports only counts.
 """
 
 import re

@@ -6,56 +6,44 @@ not something a reader can act on. Neither is a corpus-relative percentile:
 and is not one, and a band such as "High similarity" says how strong the
 number was without saying what the projects have in common.
 
-This module answers the useful question instead -- what subject matter the
-two projects actually share -- and answers it from the projects' own recorded
-data rather than from the embedding. Nothing here influences retrieval,
-ranking, thresholds or ordering; it is presentation attached to a result set
-that has already been decided elsewhere.
+This module reports what subject matter two projects actually share, drawn
+from their own recorded data rather than from the embedding. Nothing here
+influences retrieval, ranking, thresholds or ordering.
 
 Where the terms come from
 -------------------------
 The weighted `search_vector` each project already maintains, so there is no
-second index to build or keep current. Its weight classes are used as they
-were defined:
+second index to keep current. Its weight classes are used as defined:
 
-    A  title       treated as subject matter
-    B  keywords    treated as subject matter
+    A  title       subject matter
+    B  keywords    subject matter
     C  abstract    corroborating only
     D  people, department, cluster, batch    ignored entirely
 
-D is excluded deliberately. Two projects sharing a supervisor, a department
-or an intake year have nothing in common in subject matter, and surfacing a
-person's name as the reason two projects are related would be both wrong and
-a disclosure.
+Excluding D is a confidentiality requirement as well as a correctness one.
+Two projects sharing a supervisor, department or intake year have nothing in
+common in subject matter, and naming a person as the reason two projects are
+related would disclose them.
 
 What makes a term worth showing
 -------------------------------
-Two rules, both measured against the corpus rather than hand-listed.
+Three rules, all measured against the corpus rather than hand-listed, so no
+blocklist of generic words is needed and none would travel to another corpus.
 
-Rare enough to mean something. A term is only explanatory if it is uncommon
-in the repository, so the cut-off is a share of the corpus rather than a
-fixed count. This is what keeps "system", "application", "machine learning"
-and the like out: measured over the current corpus of 95 projects they occur
-in 70, 31 and 44 of them respectively, far above the cut-off, while a genuine
-subject term sits in a handful. The cut-off itself was set at the loosest
-value that still excludes every generic term named as unacceptable; the sweep
-is recorded beside the constant. A blocklist of generic words was not needed
-and would not have travelled to a different corpus.
+Rare. A term must occur in no more than MAX_DOCUMENT_FREQUENCY_SHARE of the
+corpus. This is what excludes "system", "application" and "machine learning",
+which occur in 70, 31 and 44 of the current 95 projects.
 
-Anchored in curated subject matter. The term must appear in the title or
-keywords of at least one of the two projects, not merely in both abstracts.
-Without that, pairs get explained by whatever incidental vocabulary two
-abstracts happen to share, which is exactly the invented explanation this is
-supposed to avoid. Measured over the 171 pairs Similar Projects currently
-returns, the anchored rule explains 72% of them; dropping the anchor pushes
-that to 98%, which is not better -- it means almost nothing is left
-unexplained, including the pairs where there is genuinely nothing to say.
+Anchored. The term must appear in the title or keywords of at least one of
+the pair, not merely in both abstracts, or pairs get explained by whatever
+incidental vocabulary two abstracts happen to share. Over the 171 pairs
+Similar Projects returns, the anchored rule explains 72%; dropping the anchor
+reaches 98%, which means it is explaining pairs that have nothing to say.
 
-Silence is a valid answer
--------------------------
-Between a quarter and a third of pairs yield no explanation, and those are returned with an
-empty list so the interface can simply say nothing. A recommendation with no
-stated reason is honest; a fabricated reason is not.
+Plural. See MIN_SHARED_CONCEPTS.
+
+An empty result is meaningful: callers presenting recommendations drop the
+candidate rather than showing it without a reason.
 """
 
 from django.db import connection
@@ -83,9 +71,18 @@ MAX_DOCUMENT_FREQUENCY_SHARE = 0.12
 # to distinguish a subject term from a common one.
 MIN_CORPUS_FOR_RARITY = 12
 
-# How many terms a single explanation may carry. The point is a glance, not a
-# list; three keeps a card compact.
 MAX_TERMS = 3
+
+# How many distinct concepts a pair must share to be considered explained.
+#
+# One shared concept is not evidence of a relationship. Any two projects in an
+# engineering catalogue can coincide on a single term, and the rarity cut-off
+# cannot separate that from a real overlap: a term can be uncommon in the
+# corpus and still be the only thing the pair has in common. Requiring two
+# independent concepts is what distinguishes a relationship from a
+# coincidence. Counted after phrases are consolidated, so "Secure
+# Communication" counts once rather than twice.
+MIN_SHARED_CONCEPTS = 2
 
 # Lexemes shorter than this are noise once stemmed.
 MIN_TERM_LENGTH = 3
@@ -94,9 +91,9 @@ MIN_TERM_LENGTH = 3
 def _document_frequency():
     """How many published projects each subject-matter lexeme occurs in.
 
-    Weight D is dropped here as well as at match time, so a term that only
-    ever appears as a person's name or a department carries no frequency and
-    can never be selected.
+    Weight D is dropped here as well as at match time, so a term appearing
+    only as a person or department name carries no frequency and can never be
+    selected.
     """
     with connection.cursor() as cursor:
         cursor.execute(
@@ -122,11 +119,8 @@ def _document_frequency():
 
 
 def _lexemes_by_project(project_ids):
-    """(anchor, body) lexeme sets per project.
-
-    Anchor is title and keywords, body is those plus the abstract. One query
-    for the whole set of projects on the page.
-    """
+    """(anchor, body) lexeme sets per project: anchor is title and keywords,
+    body is those plus the abstract. One query for the whole page."""
     if not project_ids:
         return {}
     with connection.cursor() as cursor:
@@ -150,11 +144,8 @@ def _lexemes_by_project(project_ids):
 
 
 def _stem(phrases):
-    """Map each phrase to its lexemes, using the same analyser as the index.
-
-    One query for every phrase under consideration, so the display labels are
-    stemmed exactly the way the terms they have to match were.
-    """
+    """Map each phrase to its lexemes using the index's analyser, so display
+    labels stem the same way as the terms they must match."""
     phrases = [p for p in {p.strip() for p in phrases} if p]
     if not phrases:
         return {}
@@ -170,23 +161,14 @@ def _stem(phrases):
 
 
 def _display_labels(shared, keyword_sources, title_sources, frequency):
-    """Turn a set of shared lexemes into at most MAX_TERMS readable labels.
+    """Readable labels for a set of shared lexemes, most specific first.
 
-    Preference order, strongest first:
+    Preference order: a multi-word keyword phrase whose lexemes are all
+    shared, so "Secure Communication" stays whole; then a single-word
+    keyword; then a title word. Curated keywords outrank title words because
+    a title states a concept incidentally where a keyword names it.
 
-      a curated keyword phrase, when every one of its lexemes is shared, so
-      "Secure Communication" is offered whole rather than broken into two
-      chips that each say less than the pair;
-
-      a single-word keyword;
-
-      a word from a title, which is real project data but incidental -- a
-      title says "Encrypting telemetry at the sensor" where the keyword says
-      "Encryption", and the curated term is the better label for the same
-      concept.
-
-    Within each tier, rarest first: the rarest shared term is the most
-    informative thing about the pair.
+    Within each tier, rarest first.
     """
     stems = _stem(list(keyword_sources) + list(title_sources))
     remaining = set(shared)
@@ -221,18 +203,12 @@ def _display_labels(shared, keyword_sources, title_sources, frequency):
             continue
         seen.add(key)
         labels.append(cleaned)
-        if len(labels) >= MAX_TERMS:
-            break
     return labels
 
 
 def _titlecase(text):
-    """Present a term without shouting, and without flattening an acronym.
-
-    Recorded keywords are inconsistently cased, so an all-lower term is
-    capitalised and anything already carrying capitals is left as the author
-    wrote it.
-    """
+    """Capitalise a term, leaving anything already carrying capitals alone so
+    acronyms survive. Recorded keywords are inconsistently cased."""
     words = []
     for word in text.split():
         words.append(word if any(c.isupper() for c in word) else word.capitalize())
@@ -254,11 +230,29 @@ def _label_sources(project):
     return keywords, [w for w in title_words if w]
 
 
+def explanations_available():
+    """Whether the corpus is large enough for rarity to carry information.
+
+    Below MIN_CORPUS_FOR_RARITY every term looks rare, so no term can be
+    distinguished as subject matter. Callers that drop unexplained candidates
+    must not do so here: the absence of an explanation means the corpus
+    cannot supply one, not that the pairing is weak.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT COUNT(*) FROM projects "
+            "WHERE status = 'Published' AND search_vector IS NOT NULL"
+        )
+        return cursor.fetchone()[0] >= MIN_CORPUS_FOR_RARITY
+
+
 def shared_concepts(subject, candidates):
     """Subject matter each candidate shares with `subject`.
 
-    Returns {project_id: [label, ...]}, empty list where there is not enough
-    evidence to say anything. `subject` is a Project.
+    Returns {project_id: [label, ...]}. A candidate that does not share at
+    least MIN_SHARED_CONCEPTS distinct concepts maps to an empty list, which
+    callers presenting recommendations treat as "there is no case for showing
+    this at all" rather than as "show it without a reason".
     """
     candidates = list(candidates)
     if not candidates:
@@ -284,17 +278,19 @@ def shared_concepts(subject, candidates):
             and not term.isdigit()
             and (term in subject_anchor or term in anchor)
         }
+        labels = []
         if shared:
             subject_keywords, subject_titles = _label_sources(subject)
             candidate_keywords, candidate_titles = _label_sources(candidate)
-            out[candidate.pk] = _display_labels(
+            labels = _display_labels(
                 shared,
                 subject_keywords + candidate_keywords,
                 subject_titles + candidate_titles,
                 frequency,
             )
-        else:
-            out[candidate.pk] = []
+        out[candidate.pk] = (
+            labels[:MAX_TERMS] if len(labels) >= MIN_SHARED_CONCEPTS else []
+        )
     return out
 
 
@@ -337,7 +333,7 @@ def concept_shared_concepts(text, candidates):
             keywords, titles = _label_sources(candidate)
             out[candidate.pk] = _display_labels(
                 shared, keywords, titles, frequency
-            )
+            )[:MAX_TERMS]
         else:
             out[candidate.pk] = []
     return out

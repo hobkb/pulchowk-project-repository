@@ -1,28 +1,16 @@
-"""
-TEMPORARY ingestion QA tool.
+"""Export a real IngestionJob's stored extracted_payload to JSON.
 
-Exports the extracted_payload ALREADY STORED on a real IngestionJob --
-i.e. exactly what the real website upload flow produced (or, if an admin
-has since edited and saved it through the ingestion workflow UI, whatever
-is currently there) -- to a JSON file in the same shape
-extract_debug_json.py produces, so it can be inspected with
-validate_ingestion.py.
+Emits the shape extract_debug_json produces, for inspection with
+validate_ingestion.py. Unlike that command it does not re-run the pipeline
+and creates or deletes nothing -- it reads the job's current
+extracted_payload column and modifies nothing.
 
-Unlike extract_debug_json.py, this does NOT re-run the pipeline and does
-NOT create or delete anything -- it only reads a job's current
-extracted_payload column. Nothing about the job is modified.
-
-Usage:
     python manage.py export_job_json <job_id> --out job_123.json
-    python manage.py export_job_json <job_id> <job_id> <job_id> --out-dir job_json/
+    python manage.py export_job_json <id> <id> --out-dir job_json/
 
-Then, from the same terminal:
-    python ingestion/tools/validate_ingestion.py job_123.json
-
-Confidentiality: this reads a real submission's full extracted text into a
-local JSON file. It only ever operates on the job id(s) you explicitly
-pass -- it never scans or lists other jobs -- but treat the output file
-with the same care as the source PDF once it's written.
+Confidentiality: writes a real submission's full extracted text to a local
+file. It operates only on the job ids explicitly passed and never scans or
+lists other jobs, but treat the output with the same care as the source PDF.
 """
 
 import json

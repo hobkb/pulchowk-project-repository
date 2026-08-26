@@ -1,16 +1,12 @@
-"""
-Finding which real PDF page a manually-typed heading corresponds to.
+"""Locate the PDF page a manually-typed heading starts on.
 
-Used from the review screen: a reviewer adds a section by hand and types a
-heading like "System Design", and this looks through the document's own
-content pages for a line that matches it, returning just the page number
-that heading actually starts on -- never the matched text itself, so a
-lookup never puts document content into a response body.
+Used from the review screen when a reviewer adds a section by hand. Returns
+only the page number, never the matched text, so a lookup cannot put document
+content into a response body.
 
-Kept separate from the section-extraction pipeline (`section_tree.py`)
-because it solves a different problem: extraction discovers ALL headings in
-one forward pass, while this searches for ONE specific, already-known
-heading string on demand.
+Kept separate from `section_tree.py`, which solves the opposite problem:
+extraction discovers all headings in one forward pass, while this searches
+for one already-known heading on demand.
 """
 
 from rapidfuzz import fuzz

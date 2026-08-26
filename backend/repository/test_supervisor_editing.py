@@ -1,12 +1,4 @@
-"""
-Editing a published project's supervisors.
 
-A supervisor is often identified only after publication -- the report names
-them nowhere extraction could find, and someone recognises them later. The
-risk when adding one by hand is creating a second record for a person the
-directory already knows, which splits their project list across two entries
-in the search facet.
-"""
 
 from django.urls import reverse
 from rest_framework.test import APITestCase

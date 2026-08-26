@@ -1,13 +1,4 @@
-"""The candidate union, and automatic indexing on publication.
 
-Two behaviours that were wrong or missing and are easy to regress:
-
-  the result set must be exactly what the two branches retrieved, so a small
-  corpus does not answer every query with its whole contents;
-
-  publishing a project must make it findable without anyone running a
-  backfill command afterwards.
-"""
 
 import math
 from unittest.mock import patch

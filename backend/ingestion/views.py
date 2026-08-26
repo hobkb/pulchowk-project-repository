@@ -355,23 +355,18 @@ class JobPublishAPIView(APIView):
 
     @classmethod
     def _create_sections(cls, project, sections, _counter=None, _depth=1):
-        """Flattens the nested section tree into ProjectSection rows.
+        """Flatten the nested section tree into ProjectSection rows.
 
-        `display_order` is assigned as a single document-wide pre-order
-        sequence rather than the per-parent index the tree itself carries.
-        The tree numbers each node within its own parent, so "1.1" and
-        "2 Literature Review" both arrive as display_order=1; writing those
-        numbers straight through collided on a model whose Meta.ordering is
-        ["display_order"], and the published project's sections came back
-        interleaved (Introduction, 1.1, Literature Review, 1.2, ...) with
-        the document order -- and therefore any hierarchy rebuilt from it --
-        destroyed. A pre-order sequence preserves exact document order, and
-        together with heading_level is enough for the repository serializer
-        to rebuild the true parent/child tree (see build_section_tree there).
+        `display_order` is a document-wide pre-order sequence, not the
+        per-parent index the tree carries. The tree numbers each node within
+        its own parent, so nodes at different depths collide on
+        Meta.ordering = ["display_order"] and published sections came back
+        interleaved, destroying document order and any hierarchy rebuilt from
+        it. Pre-order plus heading_level is enough for the repository
+        serializer to rebuild the tree (see build_section_tree).
 
-        `heading_level` is likewise derived from actual nesting depth when
-        the payload omits it, so a child can never be recorded at a level
-        that would make it look like its parent's sibling.
+        `heading_level` is derived from nesting depth when the payload omits
+        it, so a child cannot be recorded as its parent's sibling.
         """
         if _counter is None:
             _counter = itertools.count(1)
@@ -884,18 +879,11 @@ class JobPublishAPIView(APIView):
 
             NotificationService.notify_job_published(job, project)
 
-        # Publication is the moment a project becomes part of the catalogue,
-        # so it is the moment it has to become findable. The lexical vector is
-        # already written: the save signal rebuilds it inside the transaction
-        # above. The embedding is queued here, once, after the transaction has
-        # committed.
-        #
-        # Queued here rather than left to the per-save signal because
-        # publishing writes the project, then its people, then its sections,
-        # keywords, domains and references. Each of those is a save, and each
-        # would queue its own embedding task for the same project. Deferring
-        # across the write and queueing once at the end costs one model load
-        # instead of six, and the digest check makes the result identical.
+        # Queued once here rather than per save: publishing writes the
+        # project, its people, sections, keywords, domains and references, and
+        # each save would otherwise queue its own embedding task for the same
+        # project. The lexical vector is already written by the save signal
+        # inside the transaction above.
         queue_project_indexing(project.pk)
 
         return success_response(

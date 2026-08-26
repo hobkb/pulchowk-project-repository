@@ -1,9 +1,8 @@
 """Similarity calibration, banding and the two similarity endpoints.
 
-The embedding model is never loaded here. Vectors are constructed by hand so
-that every cosine in these tests is exact and the assertions are about the
-calibration and interpretation logic rather than about what a neural network
-happens to produce on a given day.
+The embedding model is never loaded. Vectors are constructed by hand so every
+cosine is exact and the assertions test calibration and interpretation rather
+than model output.
 """
 
 import math

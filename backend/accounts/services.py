@@ -26,18 +26,10 @@ class ProfileConflict(Exception):
 
 
 class GoogleService:
-    """
-    Service responsible for verifying Google ID tokens.
+    """Verifies Google ID tokens against Google's public endpoint.
 
-    This service communicates with Google's public authentication endpoint
-    to validate the ID token received from the frontend.
-
-    Responsibilities:
-        - Verify token signature.
-        - Verify token audience.
-        - Ensure the email is verified.
-        - Restrict authentication to @pcampus.edu.np accounts.
-        - Return normalized user information.
+    Checks signature and audience, requires a verified email, and restricts
+    authentication to the campus domain.
     """
   
     @staticmethod
@@ -278,18 +270,16 @@ class ProfileService:
     @staticmethod
     @transaction.atomic
     def save_faculty_profile(user: User, data: dict) -> Faculty:
-        """
-        Links the signed-in user to their Faculty record.
+        """Link the signed-in user to their Faculty record.
 
         Matched on the verified email address and nothing else. The previous
-        lookup also matched on full name and honoured a `faculty_id` sent by
-        the client, which meant typing or selecting a supervisor's name
-        handed over that supervisor's person record -- and with it every
-        project already attributed to them. A name is not a credential.
+        lookup also matched full name and honoured a client-supplied
+        `faculty_id`, so typing a supervisor's name handed over that
+        supervisor's record and every project attributed to them. A name is
+        not a credential.
 
-        When no record carries this address a new one is created. If that
-        turns out to duplicate someone already extracted from a report, an
-        administrator merges them; a wrong merge is far cheaper to undo than
+        An unmatched address creates a new record. A resulting duplicate is
+        merged by an administrator; a wrong merge is far cheaper to undo than
         a wrongly claimed identity.
         """
         email = user.email

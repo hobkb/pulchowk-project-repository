@@ -1,22 +1,19 @@
-"""
-Nested document-tree reconstruction.
+"""Nested document-tree reconstruction.
 
-Replaces the previous flat, alias-gated section scan. A heading is accepted
-purely on its confidence score (see heading_scoring.py), and its place in
-the tree is resolved with a stack of currently-open sections -- the same
-way a person outlining a document by hand would: a new heading either opens
-a sibling at its own level, a child of whatever is currently deepest open,
-or closes deeper levels back up to its own level. Numbering depth ("2.3.1"
--> level 3) is used when present; font-size clustering relative to whatever
-is currently open is used when it is not. A heading whose level would leave
-an impossible gap (e.g. a level-3 heading with no level-2 open) is clamped
-to the deepest legal level rather than orphaned, and the clamp is recorded
-as a processing warning so it surfaces in the QA JSON instead of silently
-reshaping the document.
+Replaces the previous flat, alias-gated scan. A heading is accepted on its
+confidence score alone (see heading_scoring.py) and placed using a stack of
+currently-open sections: a new heading opens a sibling at its own level, a
+child of the deepest open section, or closes deeper levels back to its own.
+Numbering depth ("2.3.1" -> level 3) is used when present; font-size
+clustering relative to what is open is used when it is not.
 
-Back-matter (References / Appendices) detection and footer/TOC line
-filtering are shared with metadata_sections.py's public API so both stay in
-agreement about what counts as body content on a "content" page.
+A heading whose level would leave an impossible gap (level 3 with no level 2
+open) is clamped to the deepest legal level rather than orphaned, and the
+clamp is recorded as a processing warning so it surfaces in the QA JSON
+instead of silently reshaping the document.
+
+Back-matter detection and footer/ToC line filtering are shared with
+metadata_sections.py so both agree on what counts as body content.
 """
 
 import re

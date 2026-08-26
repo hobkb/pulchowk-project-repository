@@ -8,17 +8,15 @@ const FOCUSABLE =
   'select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
- * The dialog primitive. Rendered through a portal so it never inherits an
- * ancestor's stacking or overflow context, and it does the accessibility
- * work a hand-rolled `fixed inset-0` overlay does not: real dialog
- * semantics, a labelled title, Escape to dismiss, focus moved in on open
- * and restored to the trigger on close, and Tab cycling trapped inside
- * the panel.
+ * Dialog primitive, rendered through a portal so it never inherits an
+ * ancestor's stacking or overflow context.
  *
- * Visually it obeys the same house rules as everything else: a small
- * radius, a 1px border, a light header band and sentence-case text. On
- * small screens it anchors to the bottom of the viewport (where a thumb
- * is) and fills the width, rather than being a shrunken desktop box.
+ * Provides the accessibility a hand-rolled `fixed inset-0` overlay does not:
+ * dialog semantics, a labelled title, Escape to dismiss, focus moved in on
+ * open and restored to the trigger on close, and Tab trapped in the panel.
+ *
+ * On small screens it anchors to the bottom of the viewport and fills the
+ * width rather than shrinking the desktop box.
  */
 export function Dialog({
   open,

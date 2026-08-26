@@ -1,40 +1,25 @@
 """Hybrid retrieval: lexical relevance fused with semantic similarity.
 
-Two branches, each producing a ranked list of project ids over the same
-filtered candidate set, combined by weighted Reciprocal Rank Fusion.
-
-The result set is the union of what the two branches retrieved, and nothing
-else. A project that neither the full-text index nor the vector search
-returned is not a result: it never enters fusion, so it cannot be ranked and
-cannot be displayed. That is what stops a small corpus from answering every
-query with its entire contents.
+Two branches rank the same filtered candidate set and are combined by
+weighted Reciprocal Rank Fusion:
 
     score(p) = w_lex / (k + rank_lex(p)) + w_sem / (k + rank_sem(p))
 
-A project missing from one branch contributes nothing from it, which is the
-property that makes RRF work here: a query that is purely lexical (a batch
-number, a supervisor's surname) is carried by the lexical branch alone, and a
-query whose wording appears nowhere in the corpus is carried by the semantic
-branch alone. Neither needs a threshold or a score normalisation.
+Results are the union of what the branches retrieved and nothing else -- a
+project neither branch returned never enters fusion. This is what stops a
+small corpus from answering every query with its whole contents.
 
-Why rank fusion rather than blending the scores
------------------------------------------------
-`ts_rank_cd` and cosine are not on comparable scales, and cosine in this
-corpus does not even start at zero: two unrelated projects score about 0.64.
-Normalising both into 0-1 and blending would need recalibrating every time the
-corpus grows. RRF only reads positions, so it is stable as the collection
-changes.
+Rank fusion rather than score blending: `ts_rank_cd` and cosine are not on
+comparable scales, and cosine here does not start at zero (two unrelated
+projects score about 0.64). Blending would need recalibrating as the corpus
+grows; RRF reads only positions.
 
-Exact-title pre-emption
------------------------
-RRF's first and second positions differ by about 1.6% (1/61 against 1/62), so
-a project whose title is exactly the query can be displaced by something
-placed mid-list in both branches. When someone pastes a title they mean that
-project, so an exact normalised title match is pinned to the top rather than
-given a tunable score bonus that would distort everything below it.
+A project absent from one branch contributes nothing from it, so a purely
+lexical query (a batch number, a surname) is carried by the lexical branch
+alone and needs no threshold or normalisation.
 
 Filters are applied to the candidate set before either branch runs, so a
-filtered-out project can never consume a candidate slot.
+filtered-out project cannot consume a candidate slot.
 """
 
 import re
@@ -102,10 +87,8 @@ def semantic_ranking(queryset, text, limit, model_version=None, min_score=None):
 def reciprocal_rank_fusion(rankings, *, k, weights=None):
     """Fuse ranked id lists into one ordered list.
 
-    `rankings` maps a branch name to its ordered ids; `weights` gives each
-    branch's contribution. Returns ids ordered by fused score, and the
-    per-branch positions, which the evaluation harness uses to report how
-    much each branch contributed.
+    Returns the fused order and the per-branch positions, which the
+    evaluation harness reads to attribute contribution.
     """
     weights = weights or {}
     scores, contributions = {}, {}
@@ -143,7 +126,13 @@ def hybrid_ranking(queryset, text, *, k=None, weights=None, pool=None,
 
 
 def _pin_exact_title(queryset, text, ordered):
-    """Move an exact normalised title match to the front."""
+    """Move an exact normalised title match to the front.
+
+    RRF positions one and two differ by about 1.6% (1/61 vs 1/62), so a
+    project whose title is exactly the query can be displaced by one placed
+    mid-list in both branches. Pinning avoids a tunable score bonus that
+    would distort everything below it.
+    """
     normalised = _normalise_title(text)
     if not normalised:
         return ordered

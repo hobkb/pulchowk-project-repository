@@ -1,28 +1,24 @@
 """Similar Projects and the Similar Work Check.
 
-Two layers, kept apart on purpose.
+Retrieval and interpretation are kept apart.
 
-Retrieval works in raw cosine, because that is what the vectors hold and what
-the HNSW index orders by. Nothing here transforms a stored embedding, and
-nothing re-ranks on a derived score.
+Retrieval works in raw cosine, which is what the vectors hold and what the
+HNSW index orders by. Nothing here transforms a stored embedding or re-ranks
+on a derived score.
 
-Interpretation is applied afterwards. A raw cosine is not shown to a reader,
-because in this corpus it does not mean what it looks like: every project is
+Interpretation is applied afterwards, and the raw value never reaches a
+reader. In this corpus it does not mean what it appears to: every project is
 an undergraduate engineering report from one department in a similar house
 style, so two unrelated projects still score around 0.64 and reach 0.82 at
-the ninety-ninth percentile. A reader is given a band, and the percentile the
-score occupies in this corpus, which is a statement about relative position
-rather than about percentage of shared content.
+the ninety-ninth percentile.
 
 Thresholds and bands come from settings.SIMILARITY; the percentile mapping
-comes from the SimilarityCalibration row that `manage.py search_eval` writes.
+comes from the SimilarityCalibration row `manage.py search_eval` writes.
 Neither is hard-coded here.
 
-Both features apply the same calibrated floor. Nearest is not the same as
-related: with a small corpus the nearest neighbour of anything is some
-project, and showing it regardless of score is how a similarity check ends up
-listing four unrelated projects under a percentile that reads like a
-percentage.
+Both features apply a calibrated floor, because nearest is not the same as
+related: over a small corpus the nearest neighbour of anything is some
+project.
 """
 
 from django.conf import settings
@@ -174,37 +170,20 @@ def similar_projects(project, *, limit=None, min_score=None, model_version=None)
 def check_concept(*, concept, title="", description="", model_version=None):
     """Compare a proposed idea against the repository.
 
-    Concept first: one or two sentences describing the idea is a complete
-    input. A title and a longer description are accepted but neither is
-    required, because a student weighing up an idea rarely has them yet.
+    Concept first: one or two sentences is a complete input. Title and
+    description are accepted but not required.
 
-    A concept is a weaker signal than a full document, so the
-    project-to-project cut-off of 0.78 is wrong for it: measured over ninety
-    known-item concept queries it surfaces only 72% of the projects the
-    concepts were written from. Simply lowering it does not work either. A
-    concept describing work that is in the repository scored 0.7402 against
-    it, while a concept describing work that plainly is not there scored
-    0.7738 against its nearest project -- the absent one scored higher. No
-    absolute number in that range separates them.
+    Results come back in two bands. A concept is a weaker signal than a full
+    document, so the project-to-project cut-off surfaces only 72% of the
+    projects the concepts were written from, and lowering it does not help --
+    a concept for absent work can outscore one for present work. Below the
+    strong cut-off a single project is offered, and only when it clears the
+    floor and leads the runner-up by a margin, which is the signal that does
+    separate them. settings.SIMILARITY carries the measurements.
 
-    What separates them is whether the best match stands clear of the field.
-    The genuine one led its runner-up by 0.1186, the absent one by 0.0427. So
-    below the strong cut-off exactly one project is offered, and only when it
-    clears the floor and leads the next candidate by the configured margin.
-    At that margin the rule lifts recall from 72% to 78%, and the rows it adds
-    are right about five times in eight; settings.SIMILARITY carries the full
-    measurement. It is labelled as possible rather than shown beside the
-    confident matches.
-
-    When the leading scores sit in a flat cluster the corpus holds nothing in
-    particular and nothing is listed. That is the point of the rule: the
-    nearest neighbour of any idea is always some project, and showing it
-    regardless of how it compares to the rest is how a check ends up padding
-    the screen with unrelated work.
-
-    When neither band has anything, the single closest project is returned
-    flagged as below the threshold, so the answer is "nothing related, and
-    here is the nearest thing" rather than an empty screen.
+    With no band populated the closest project is returned flagged as below
+    threshold, so the answer is "nothing related, and here is the nearest
+    thing" rather than an empty screen.
 
     Nothing about the proposal is stored or logged.
     """

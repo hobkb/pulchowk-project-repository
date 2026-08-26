@@ -1,25 +1,16 @@
 """Similar Projects and the Similar Work Check.
 
-Neither endpoint returns a number describing the strength of a match: not the
-raw cosine, and not the corpus-relative percentile that used to accompany it.
-Both were misleading to a reader. A cosine of 0.79 invites being read as "79%
-similar", which is not what cosine measures, and "more similar than 98% of
-project pairs" reads like a measurement of shared content when it is only a
-statement about where one number falls among others. The band labels went the
-same way: "Very high overlap" describes the score, says nothing about what
-the projects have in common, and edges towards a claim about duplication that
-embedding similarity cannot support.
+This module is the boundary at which similarity scores stop being exposed.
+Neither endpoint returns the raw cosine, the corpus-relative percentile or
+the band label. A cosine of 0.79 reads as "79% similar", which is not what
+cosine measures; a percentile reads as a proportion of shared content, which
+it is not; and a band such as "Very high overlap" edges towards a claim about
+duplication that embedding similarity cannot support.
 
-What is returned instead is the subject matter the two pieces of work
-actually share, drawn from the projects' own titles and keywords by
-`repository.explanations`. Where there is not enough evidence to say anything
-the list is empty and the interface says nothing, which is the honest
-outcome.
-
-Scores, bands and percentiles are all still computed and are unchanged; they
-remain available to internal tooling through `repository.similarity` and to
-the evaluation harness. This module is the boundary at which they stop being
-useful to a reader and start being misread.
+Each result instead carries the subject matter the two pieces of work share,
+from `repository.explanations`. Scores, bands and percentiles are still
+computed unchanged and remain available to `repository.similarity` and to the
+evaluation harness.
 """
 
 from rest_framework import permissions, status
@@ -29,7 +20,11 @@ from rest_framework.views import APIView
 from core.responses import success_response
 from repository.models import Project
 from repository.serializers import ProjectListSerializer
-from repository.explanations import concept_shared_concepts, shared_concepts
+from repository.explanations import (
+    concept_shared_concepts,
+    explanations_available,
+    shared_concepts,
+)
 from repository.similarity import check_concept, similar_projects
 
 MAX_TITLE = 500
@@ -39,14 +34,8 @@ MAX_CONCEPT = 20000
 def _present(row, request, explanations):
     """One similarity result as the interface sees it.
 
-    The score, band and percentile are dropped here rather than never being
-    computed, because retrieval, calibration and the evaluation harness all
-    work in raw cosine and the bands are how the harness reports it.
-
-    `shared_concepts` may legitimately be empty: a project can be a genuine
-    recommendation without the repository holding enough recorded subject
-    matter to say why in a few words. The interface shows the recommendation
-    and stays quiet about the reason rather than inventing one.
+    Score, band and percentile are dropped here rather than never computed:
+    retrieval, calibration and the evaluation harness all work in raw cosine.
     """
     project = ProjectListSerializer(row["project"], context={"request": request}).data
     return {
@@ -74,6 +63,17 @@ class SimilarProjectsView(APIView):
 
         rows = similar_projects(project)
         explanations = shared_concepts(project, [row["project"] for row in rows])
+
+        # Drop candidates the repository cannot justify: clearing the
+        # embedding threshold means the vectors are close, not that there is a
+        # reason a reader can check. Retrieval, threshold, ordering,
+        # self-exclusion and the cap stay with `similar_projects`; surviving
+        # rows keep their order.
+        #
+        # Skipped when the corpus is too small to judge term rarity, where an
+        # empty explanation means "cannot tell" rather than "not related".
+        if explanations_available():
+            rows = [row for row in rows if explanations.get(row["project"].pk)]
         return success_response(
             data=[_present(row, request, explanations) for row in rows],
             message="Similar projects retrieved successfully.",

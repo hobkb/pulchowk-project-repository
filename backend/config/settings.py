@@ -17,11 +17,9 @@ from datetime import timedelta
 
 load_dotenv()
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
@@ -372,45 +370,33 @@ SIMILARITY = {
     "CHECK_BANDS_TITLE_ABSTRACT": _DOCUMENT_BANDS,
     "CHECK_BANDS_TITLE_ONLY": _TITLE_ONLY_BANDS,
     "CHECK_RESULT_LIMIT": int(os.getenv("CHECK_RESULT_LIMIT", "10")),
-    # Thresholds for the Similar Work Check, kept apart from the
-    # project-to-project one because the inputs are not alike. A one-line idea
-    # is a much weaker signal than a full title and abstract, so the same
-    # number behaves very differently here.
+    # Concept-query thresholds, kept apart from the project-to-project one:
+    # a one-line idea is a much weaker signal than a full title and abstract.
     #
-    # Lowering the cut-off alone does not work, and the measurements say why.
-    # A concept describing work that is genuinely in the repository scored
-    # 0.7402 against it; a concept describing work that plainly is not there,
-    # blockchain carbon-credit trading, scored 0.7738 against its nearest
-    # project. The absent one scored higher. No absolute threshold in that
-    # range can tell those apart.
+    # Lowering the cut-off alone does not work. A concept describing work that
+    # is in the repository scored 0.7402 against it; one describing work that
+    # is plainly absent scored 0.7738 against its nearest project. The absent
+    # one scored higher, so no absolute threshold in that range separates
+    # them. What does is whether the best match stands clear of the field:
+    # 0.1186 above the runner-up in the first case, 0.0427 in the second.
     #
-    # What does tell them apart is whether the best match stands clear of the
-    # field: it led the runner-up by 0.1186 in the first case and by 0.0427 in
-    # the second. So below the strong cut-off exactly one project is offered,
-    # and only when it clears 0.70 and leads the next candidate by a margin.
+    # Below CONCEPT_STRONG_MIN exactly one project is offered, and only when
+    # it clears CONCEPT_POSSIBLE_MIN and leads the next candidate by
+    # CONCEPT_POSSIBLE_MARGIN. The margin was measured over 90 known-item
+    # concept queries. "False alarm" re-runs each query with its own project
+    # held out, so any row returned is unwanted -- an upper bound, since a
+    # held-out query can still have genuinely related work:
     #
-    # The margin was chosen by measuring both directions over 90 known-item
-    # concept queries. Recall is how often the project a concept was written
-    # from is surfaced. False alarm re-runs the same query with that project
-    # held out, so nothing genuinely matching remains and any row returned is
-    # unwanted -- an upper bound, since a held-out query can still have real
-    # related work. Rightmost column is what the margin rule adds on top of a
-    # flat 0.78:
-    #
-    #   margin   recall   false alarm   added rows
-    #    off     72.2%       12.2%      (0.78 alone)
+    #   margin   recall   false alarm   added over a flat 0.78
+    #    off     72.2%       12.2%      --
     #    0.12    74.4%       13.3%      +2 true / +1 false
     #    0.10    74.4%       14.4%      +2 true / +2 false
     #    0.08    77.8%       15.6%      +5 true / +3 false
     #    0.05    83.3%       22.2%      +10 true / +9 false
     #    0.03    86.7%       30.0%      +13 true / +16 false
     #
-    # 0.08 is the best of these: the rows it adds are right roughly five times
-    # in eight, and the real rate is better still because the false-alarm
-    # column overcounts. Loosening further stops paying -- at 0.03 the added
-    # rows are wrong more often than right, which is padding, so the band
-    # stops there. It is capped at one project and labelled as possible
-    # rather than presented alongside the confident matches.
+    # 0.08 adds rows that are right roughly five in eight. At 0.03 the added
+    # rows are wrong more often than right, so the band stops before there.
     "CONCEPT_STRONG_MIN": float(os.getenv("CONCEPT_STRONG_MIN", "0.78")),
     "CONCEPT_STRONG_LIMIT": int(os.getenv("CONCEPT_STRONG_LIMIT", "5")),
     "CONCEPT_POSSIBLE_MIN": float(os.getenv("CONCEPT_POSSIBLE_MIN", "0.70")),

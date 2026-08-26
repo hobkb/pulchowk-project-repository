@@ -22,29 +22,19 @@ import { Link } from "react-router-dom";
 /**
  * The project catalogue.
  *
- * All filtering is done by the backend — the query, department, level and
- * batch go out as query parameters and the server returns the matches, so
- * the result count shown is the real number of matching records. The URL
- * carries that state, so a search can be linked and the back button works.
+ * Filtering happens server-side: query, department, level and batch go out as
+ * query parameters, so the result count shown is the real number of matching
+ * records. The URL carries that state, so a search can be linked and the back
+ * button works.
  *
- * The search is ordinary keyword matching over stored fields. It is
- * labelled "Search projects" because that is exactly what it is; there is
- * no ranking model or semantic component behind it and the interface does
- * not suggest otherwise.
+ * Searching is explicit. A query runs on Enter or the Search button and at no
+ * other time; emptying the box clears it. The box previously searched on a
+ * timer as you typed, which made results depend on typing speed -- pausing
+ * midway through a word searched for the fragment.
  *
- * Searching is explicit
- * ---------------------
- * A query runs when the reader presses Enter or clicks Search, and at no
- * other time. The box previously searched as you typed, on a timer, which
- * made the results depend on typing speed: pausing midway through "deep"
- * ran a search for "dee", while typing "tomato" briskly and stopping could
- * leave the previous results on screen. Neither is something a reader can
- * predict or correct.
- *
- * The two pieces of state are therefore kept apart. `queryInput` is the text
- * in the box and nothing reads it but the box. `queryParam` is the submitted
- * query, lives in the URL, and is the only thing that reaches the server.
- * Submitting is the one place the first becomes the second.
+ * The two pieces of state are therefore separate. `queryInput` is the text in
+ * the box and nothing but the box reads it. `queryParam` lives in the URL and
+ * is the only thing sent to the server.
  */
 
 /** A filter group: options with the real number of records behind each,

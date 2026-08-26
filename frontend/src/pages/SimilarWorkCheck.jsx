@@ -18,47 +18,27 @@ import {
 /**
  * Similar Work Check.
  *
- * A reader describes an idea they are considering, and the repository reports
- * whether anything close to it already exists.
+ * A reader describes an idea and the repository reports whether close work
+ * already exists. A plain description is a complete input; a title and fuller
+ * description sit behind a disclosure for anyone who has them.
  *
- * Concept first
- * -------------
- * The only input that matters is a plain description of the idea. The earlier
- * version demanded a title, an abstract and a keyword list, which meant
- * writing most of a proposal before you could ask whether the idea already
- * existed. A title and a fuller description remain, behind a disclosure, for
- * someone who happens to have them.
+ * The comparison is between sentence embeddings, which cannot establish
+ * copying, so no verdict is stronger than "related work exists, read it".
  *
- * What this is careful not to claim
- * ---------------------------------
- * The comparison is between sentence embeddings, which measure conceptual
- * closeness. That cannot establish copying, so nothing here says "duplicate"
- * or "plagiarised", and no verdict is stronger than that related work exists
- * and a person should read it.
- *
- * Work above the calibrated threshold is listed as related. Below it, at most
+ * Above the calibrated threshold work is listed as related. Below it at most
  * one project is offered, and only when it stands clear of the rest of the
- * corpus rather than merely being the nearest thing to hand; it is put under
- * its own heading and labelled as possible. The earlier version listed the
- * five nearest neighbours whatever their scores, which put four unrelated
- * projects on screen beside the one real match.
+ * corpus rather than merely being nearest.
  *
- * No number reaches the reader
- * ----------------------------
- * Not the cosine, and not the percentile that used to sit under each row.
- * Two entirely unrelated projects in this corpus score around 0.64, so the
- * raw value means nothing without its context, and "more similar than 98% of
- * project pairs" reads as a percentage of shared content when it is nothing
- * of the kind. Each result instead carries the subject matter it actually
- * shares with the idea, or nothing at all where the repository holds too
- * little to say.
+ * No number reaches the reader -- not the cosine, not the percentile. Two
+ * unrelated projects in this corpus score around 0.64, and "more similar than
+ * 98% of project pairs" reads as a proportion of shared content when it is
+ * nothing of the kind. Results carry shared subject matter instead.
  */
 
 /**
- * The three outcomes a check can have. Deliberately no finer than this: the
- * previous version keyed off a four-rung band ladder whose labels ("Very high
- * overlap", "High similarity") described how large a cosine was and edged
- * towards a claim about duplication that the measurement cannot support.
+ * The three outcomes a check can have -- deliberately no finer. The previous
+ * band ladder ("Very high overlap") described the size of a cosine and edged
+ * towards a duplication claim the measurement cannot support.
  */
 function Verdict({ result }) {
   const hasStrong = result.strong.length > 0;

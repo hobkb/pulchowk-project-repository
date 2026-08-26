@@ -1,10 +1,3 @@
-"""
-Paging behaviour for the list endpoints.
-
-Deliberately checks the awkward cases rather than just "page 1 works":
-an out-of-range page, a page_size above the cap, and that paging composes
-with filtering instead of silently dropping it.
-"""
 
 from django.urls import reverse
 from rest_framework.test import APITestCase

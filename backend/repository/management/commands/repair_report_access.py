@@ -1,56 +1,31 @@
 """Repair report access on projects that arrived through a bundle merge.
 
-Why a project looks locked to an administrator
-----------------------------------------------
-The detail serializer decides two things independently:
-
-    accessStatus  ->  "granted" for any reviewer (is_staff, is_superuser,
-                      role == "admin", or a DepartmentAdmin for the project's
-                      department)
-    pdfUrl        ->  the URL of the project's ProjectAsset row whose
-                      asset_type is "Report", or None when no such row exists
-
-The frontend only shows the viewer, and only offers the download, when BOTH
-are set:
+A project looks locked even to a superuser because the detail serializer sets
+`accessStatus` and `pdfUrl` independently, and the frontend requires both:
 
     accessStatus === "granted" && Boolean(project.pdfUrl)
 
-so a project with no Report asset falls through to the "Request report"
-branch even for a superuser. The account is fine; the asset row is missing.
-That is what a bundle merge tends to leave behind, because the project, its
-sections and its people transfer while the asset row or the file behind it
-does not.
+`pdfUrl` comes from the project's ProjectAsset row of type "Report". A bundle
+merge transfers the project, its sections and its people but not always that
+asset row or the file behind it, so the account is fine and the asset is
+missing.
 
-What this command does
-----------------------
-For every published project it checks for a usable Report asset and, where one
-is missing, rebuilds it from the ingestion job that published the project. The
-job keeps its own FileField, so the PDF path is recoverable locally without
-touching the bundle again.
+For every published project this checks for a usable Report asset and rebuilds
+a missing one from the ingestion job that published it, whose own FileField
+still holds a recoverable local path. Outcomes:
 
-Four outcomes per project:
+    ok          asset exists and its file is on disk
+    repaired    asset rebuilt from the ingestion job
+    no_file     asset or job path exists but the PDF is absent; media files
+                still need copying across
+    no_source   no linked ingestion job, nothing to rebuild from
 
-    ok            a Report asset exists and its file is present on disk
-    repaired      no usable asset; one was rebuilt from the ingestion job
-    no_file       an asset or job path exists but the PDF is not on disk, so
-                  the media files still have to be copied across
-    no_source     no ingestion job is linked, so there is nothing to rebuild
-                  from on this machine
+Read-only by default; pass --apply to write.
 
-Run it read-only first, then with --apply:
-
-    python manage.py repair_report_access
-    python manage.py repair_report_access --apply
-
-Confidentiality
----------------
-The project PDFs are confidential student work, and a report filename echoes
-its project title. This command is written so that its output cannot carry
-document content: every value it prints is a count, a database id, a status
-word, a boolean or a byte size. Filenames, titles, people and extracted text
-are never read into a printable variable, and the exception handler reports
-the exception class rather than its message, because a file error embeds the
-path it failed on.
+Output is deliberately content-free: only counts, ids, status words, booleans
+and byte sizes. Filenames echo project titles, so they are never read into a
+printable variable, and exception handlers report the exception class rather
+than its message, since a file error embeds the path it failed on.
 """
 
 import json

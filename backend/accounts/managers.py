@@ -2,24 +2,10 @@ from django.contrib.auth.base_user import  BaseUserManager
 
 class UserManager(BaseUserManager):
      
-    """
-        Custom manager for the project's email-based User model.
+    """Manager for the email-based User model (`USERNAME_FIELD = "email"`).
 
-        This manager replaces Django's default UserManager because the project
-        authenticates users using their email address instead of a username
-        (`USERNAME_FIELD = "email"`).
-
-        Responsibilities:
-        - Create regular users with an email and hashed password.
-        - Create superusers with the required administrative flags.
-        - Normalize email addresses before saving them to improve consistency.
-        - Retrieve users using the model's natural key (email), which Django
-        uses internally during authentication and management commands.
-
-        Google OAuth users are also created through this manager, ensuring that
-        all user creation follows a single, consistent code path regardless of
-        whether the account originates from Google authentication or Django's
-        `createsuperuser` command.
+    Google OAuth accounts are created through this manager too, so all user
+    creation follows one code path regardless of origin.
     """
     use_in_migrations = True
 

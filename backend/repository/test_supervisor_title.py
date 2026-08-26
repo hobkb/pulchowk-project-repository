@@ -1,10 +1,4 @@
-"""
-A supervisor's honorific must survive all the way to the screen.
 
-"Dr. Rajiv Bhandari, Assistant Professor" carries two different facts: an
-honorific and a post. They were being written to the same field, so the
-post overwrote the honorific and every supervisor rendered as a bare rank.
-"""
 
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse

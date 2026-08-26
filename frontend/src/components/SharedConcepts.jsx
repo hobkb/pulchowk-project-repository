@@ -1,29 +1,13 @@
 /**
- * Why a project was recommended.
+ * Why a project was recommended, shown wherever one is.
  *
- * Every surface that recommends a project renders this, so the explanation
- * reads the same way whether it appears under a Similar Projects card or a
- * Similar Work Check result.
+ * Replaces a band ("High similarity") and a percentile ("More similar than
+ * 98% of project pairs"), both of which described the size of a number rather
+ * than the relationship. The terms are subject matter the two pieces of work
+ * share, taken from their own titles and keywords.
  *
- * What it replaces
- * ----------------
- * A band ("High similarity", "Related work exists") and a percentile ("More
- * similar than 98% of project pairs"). Both described the strength of a
- * number rather than the relationship, and the percentile in particular reads
- * as a percentage of shared content, which is not what it measures. Neither
- * told a student anything they could act on.
- *
- * The terms here are the subject matter the two pieces of work actually have
- * in common, taken from the projects' own titles and keywords. Nothing is
- * inferred and nothing is generated.
- *
- * Silence is deliberate
- * ---------------------
- * The server sends an empty list when the repository does not hold enough
- * recorded subject matter to explain a pairing in a few words, which happens
- * for roughly a quarter of recommendations. This renders nothing at all in
- * that case. The recommendation still stands on the similarity that produced
- * it; what would be wrong is to manufacture a reason for it.
+ * Renders nothing when the server sends an empty list, which happens when the
+ * repository holds too little recorded subject matter to explain a pairing.
  */
 export default function SharedConcepts({ terms, className = "" }) {
   if (!terms || terms.length === 0) return null;

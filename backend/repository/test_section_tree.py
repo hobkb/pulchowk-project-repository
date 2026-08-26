@@ -1,11 +1,3 @@
-"""
-Rebuilding the published section tree from flat rows.
-
-The stored heading_level comes from font size, which disagrees with the
-document often enough to matter. These cover the case that broke: a
-chapter containing a third-level heading, after which every remaining
-subsection detached from its parent.
-"""
 
 from django.test import SimpleTestCase
 

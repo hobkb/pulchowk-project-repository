@@ -85,15 +85,10 @@ function autoCanonicalizeHeading(title) {
   return cleaned;
 }
 
-// ---------------------------------------------------------------
-// Section tree helpers. Sections extracted by the ingestion pipeline
-// are a real nested tree (each node may carry a `children` array of
-// subsections), not a flat list -- these operate on that tree via a
-// `path` (an array of child-indices from the root, e.g. [1, 0] means
-// "root[1].children[0]") so add/move/delete/update work at any depth
-// without flattening the structure, and so a "Save & Validate" never
-// has a reason to drop `children` when it rebuilds the payload.
-// ---------------------------------------------------------------
+// Section tree helpers. Extracted sections are a nested tree, not a flat
+// list. These address nodes by `path` -- child indices from the root, so
+// [1, 0] is root[1].children[0] -- letting add/move/delete/update work at any
+// depth without flattening, so rebuilding the payload never drops `children`.
 
 /** The numbering a heading carries in the document itself: "1.",
  *  "2.3", "1.1.1)". Returns the depth it implies (1, 2, 3 …) or null. */
@@ -103,23 +98,17 @@ function numberingDepth(heading) {
 }
 
 /**
- * Normalises whatever the job payload holds into one node per heading,
- * nested so that ONLY top-level sections sit at the root.
+ * Normalise the job payload into one node per heading, nested so only
+ * top-level sections sit at the root.
  *
- * The document's own numbering is the authority when it is present:
- * "1. Introduction" is depth 1, "1.1 Background" and "1.2 Problem
- * Statement" are depth 2, "1.1.1" is depth 3. Grouping by that is what
- * puts every subsection inside its parent's card instead of giving each
- * detected heading a card of its own.
+ * Document numbering is authoritative when present, and is preferred over
+ * the stored `heading_level` because the extractor derives that from font
+ * size, which regularly promotes a subsection to the top level. Headings
+ * without numbering fall back to the stored level; an already-nested payload
+ * keeps its shape.
  *
- * Numbering is preferred over the stored `heading_level` because the
- * extractor derives that level from font size, which regularly promotes a
- * subsection to the top level. When a document's headings carry no numbers
- * at all (many do not), the stored level is used instead, and a payload
- * that already nests keeps its shape.
- *
- * A level that would leave an impossible gap is clamped rather than
- * dropped, so no extracted heading can disappear from the editor.
+ * A level leaving an impossible gap is clamped rather than dropped, so no
+ * extracted heading disappears from the editor.
  */
 function normalizeSectionTree(nodes) {
   const flat = [];
@@ -322,15 +311,12 @@ function serializeSectionTree(nodes) {
 /**
  * One section and everything beneath it.
  *
- * A TOP-LEVEL section is a single card, and its subsections are rendered
- * INSIDE that card, indented against a rule down the left. They are not
- * separate sibling cards: "1.1 Background" belongs to "1 Introduction"
- * and has to look like it does, especially in the common case where the
- * chapter heading itself carries no text because the first subsection
- * begins immediately after it.
+ * A top-level section is one card with its subsections rendered inside it,
+ * indented against a left rule, rather than as sibling cards -- a subsection
+ * belongs to its chapter and has to look like it, particularly when the
+ * chapter heading carries no text of its own.
  *
- * The same add/move/delete/edit controls work identically at every depth;
- * only the chrome differs.
+ * The same controls work at every depth; only the chrome differs.
  */
 function SectionEditorRow({ node, path, isFirst, isLast, depth, onChange, onMove, onDelete, onAddChild, jobId }) {
   // The document's own section number, where extraction captured one.

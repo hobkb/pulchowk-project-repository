@@ -51,19 +51,13 @@ SEARCH_FIELDS = (
 
 
 def apply_search(queryset, query):
-    """Filters `queryset` by a free-text keyword query.
+    """Filter `queryset` by a free-text query: AND across terms, OR across
+    fields.
 
-    The query is split into whitespace-separated terms and every term must
-    match at least one searchable field (AND across terms, OR across
-    fields). A single combined `icontains` over the whole string -- what
-    this replaced -- meant "solar tracker" only matched records containing
-    that exact adjacent phrase, so a project titled "Dual-axis tracker for
-    solar arrays" was invisible. Each term is applied as its own `.filter()`
-    call rather than one combined Q object, because these are spanning
-    multi-valued relations: combining them would require all terms to be
-    satisfied by the *same* related row (the same single keyword, the same
-    single author), while chained filters let one term match the title and
-    another match a keyword.
+    Each term gets its own `.filter()` call rather than one combined Q
+    object. These lookups span multi-valued relations, so a combined Q would
+    require every term to be satisfied by the *same* related row; chained
+    filters let one term match the title and another a keyword.
     """
     for term in query.split():
         term_q = Q()
@@ -121,20 +115,12 @@ def apply_filters(queryset, params, exclude=None, defer_search=False):
 
 
 class ProjectListView(APIView):
-    """
-    Public read-only list of verified (Published) projects.
-    Only ingested projects that have been published to the repository
-    are surfaced here. Unpublished/processing jobs live in the ingestion app.
+    """Public read-only list of Published projects.
 
-    Query parameters (all optional, all server-side):
-        q               free-text keyword search -- see apply_search
-        department      exact department name
-        academic_level  exact academic level (UG / Masters / PhD / Faculty)
-        batch           exact batch code (e.g. "078")
-        cluster         exact research cluster (AIML / ANLP / NTS / ...)
-        supervisor      exact supervisor name
-        page            1-based page number (default 1)
-        page_size       rows per page (default 12, max 100)
+    Unpublished and processing jobs live in the ingestion app. All query
+    parameters are optional and applied server-side: q (see apply_search),
+    department, academic_level, batch, cluster, supervisor, page, page_size
+    (default 12, max 100).
     """
 
     permission_classes = [permissions.AllowAny]

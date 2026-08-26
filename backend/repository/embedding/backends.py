@@ -1,14 +1,13 @@
 """Embedding backends.
 
-Everything above this module talks to `EmbeddingBackend`, never to
-SentenceTransformer directly. The point is that swapping the runtime later,
-for an ONNX build or a hosted encoder, is a new subclass and a settings
-change rather than a rewrite of search, storage, tasks and the API.
+Callers talk to `EmbeddingBackend`, never to SentenceTransformer directly, so
+swapping the runtime for an ONNX build or a hosted encoder is a subclass plus
+a settings change rather than a rewrite of search, storage, tasks and the API.
 
-Two encode methods rather than one because bge models are asymmetric: a
-passage is encoded bare, a query is encoded behind an instruction prefix.
-Using the wrong side measurably degrades retrieval, so the distinction is
-part of the interface instead of something each caller has to remember.
+Two encode methods because bge models are asymmetric: a passage is encoded
+bare, a query behind an instruction prefix. Using the wrong side measurably
+degrades retrieval, so the distinction belongs in the interface rather than
+in each caller.
 """
 
 from abc import ABC, abstractmethod

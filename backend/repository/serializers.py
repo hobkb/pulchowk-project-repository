@@ -118,29 +118,22 @@ def numbering_depth(heading):
 
 
 def build_section_tree(rows):
-    """Rebuilds the nested section tree from the flat ProjectSection rows.
+    """Rebuild the nested section tree from flat ProjectSection rows.
 
-    ProjectSection has no parent FK, but it does not need one: rows are
-    written in document order (a single pre-order `display_order`
-    sequence, assigned by the publish view) and each carries its
-    heading_level. That pair reconstructs the tree with the same
-    open-section stack the ingestion pipeline used to build it.
+    No parent FK is needed: rows are written in document order via a
+    pre-order `display_order` and each carries its heading_level, which
+    reconstructs the tree with the same open-section stack the pipeline used.
 
-    Where the document numbers its own headings, that numbering wins over
-    the stored level. The stored level is derived from font size, which
-    regularly disagrees with the document: a "1.2" set in the same size as
-    "1. Introduction" was recorded as another top-level section, so every
-    subsection after a "1.1.1" broke out of its parent and the rest of the
-    chapter reattached at the wrong depth. The number printed in the
-    document is what the author meant; the font is only a guess at it.
+    Document numbering wins over the stored level. The stored level derives
+    from font size, which regularly disagrees: a "1.2" set in the same size as
+    "1. Introduction" was recorded as top-level, breaking every subsequent
+    subsection out of its parent. Numbering is trusted only when the document
+    actually uses it, so one stray numeric heading cannot restructure an
+    unnumbered report.
 
-    Numbering is only trusted when the document actually uses it, so one
-    stray "2024 in review" heading cannot restructure an unnumbered report.
-
-    A level that would leave an impossible gap (a level-3 heading with no
-    level-2 open) is clamped to the deepest legal level rather than
-    dropped, so a section can never vanish because its recorded level is
-    inconsistent.
+    A level leaving an impossible gap is clamped to the deepest legal level
+    rather than dropped, so a section cannot vanish through an inconsistent
+    recorded level.
     """
     rows = list(rows)
 

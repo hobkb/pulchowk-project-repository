@@ -92,7 +92,12 @@ export default function DashboardLayout({ children }) {
                 </div>
               ))}
 
+              {/* The drawer has room, so what the header tucks into the
+                  account menu is listed in full here. */}
               <p className="px-5 pb-1 pt-5 text-xs font-semibold text-ink-3">Your account</p>
+              <NavLink to="/bookmarks" className={drawerLink}>
+                Saved projects
+              </NavLink>
               <NavLink to="/notifications" className={drawerLink}>
                 Notifications{unreadCount > 0 ? ` (${unreadCount})` : ""}
               </NavLink>

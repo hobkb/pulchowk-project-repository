@@ -9,7 +9,13 @@ import {
 import { useAuth } from "../context/AuthContext";
 import tuLogo from "../assets/tu.png";
 import NotificationBell from "./NotificationBell";
-import { PRIMARY_NAV, adminNavFor, isAdminUser } from "../lib/nav";
+import {
+  ACCOUNT_NAV,
+  ADMIN_PRIMARY_NAV,
+  PRIMARY_NAV,
+  adminSecondaryFor,
+  isAdminUser,
+} from "../lib/nav";
 
 /**
  * The repository header.
@@ -95,9 +101,19 @@ function TopLink({ to, label, end, onNavigate }) {
   );
 }
 
+const MENU_ITEM =
+  "block px-4 py-2 text-sm text-ink-2 no-underline hover:bg-band hover:text-ink hover:no-underline";
+
+/**
+ * Account, saved work, and -- for a reviewer -- the administrative queues.
+ *
+ * The queues are periodic work rather than places a reader navigates to, so
+ * they sit here instead of competing with the catalogue for space in the bar.
+ */
 function AccountMenu({ user, onLogout }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
+  const adminLinks = adminSecondaryFor(user);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -144,22 +160,37 @@ function AccountMenu({ user, onLogout }) {
             <p className="text-xs text-ink-2 truncate">{user?.email}</p>
             <p className="text-xs text-ink-3 mt-1">{roleTitle(user)}</p>
           </div>
-          <NavLink
-            to="/settings"
-            role="menuitem"
-            onClick={() => setOpen(false)}
-            className="block px-4 py-2 text-sm text-ink-2 no-underline hover:bg-band hover:text-ink hover:no-underline"
-          >
-            Account
-          </NavLink>
-          <NavLink
-            to="/notifications"
-            role="menuitem"
-            onClick={() => setOpen(false)}
-            className="block px-4 py-2 text-sm text-ink-2 no-underline hover:bg-band hover:text-ink hover:no-underline"
-          >
-            Notifications
-          </NavLink>
+          {ACCOUNT_NAV.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className={MENU_ITEM}
+            >
+              {item.label}
+            </NavLink>
+          ))}
+
+          {adminLinks.length > 0 && (
+            <>
+              <p className="border-t border-line px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide text-ink-3">
+                Administration
+              </p>
+              {adminLinks.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  role="menuitem"
+                  onClick={() => setOpen(false)}
+                  className={MENU_ITEM}
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+            </>
+          )}
+
           <button
             type="button"
             role="menuitem"
@@ -210,7 +241,7 @@ export default function Navbar({ onToggleMenu }) {
             )
           )}
           {isAdmin &&
-            adminNavFor(user).map((item) => <TopLink key={item.to} {...item} />)}
+            ADMIN_PRIMARY_NAV.map((item) => <TopLink key={item.to} {...item} />)}
         </nav>
 
         <div className="ml-auto flex items-center gap-1 shrink-0">

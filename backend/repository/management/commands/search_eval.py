@@ -1,40 +1,31 @@
-"""Offline evaluation of the semantic layer.
+"""Offline evaluation of the search and similarity layers.
 
-Internal developer tooling. Not exposed through the API or the interface, and
-not intended to be. Run it by hand:
+Internal developer tooling, not exposed through the API or the interface:
 
     python manage.py search_eval
-    python manage.py search_eval --save reports/eval_2026_08.json
-    python manage.py search_eval --only neighbours,duplicates
+    python manage.py search_eval --only ranking --k 10
+    python manage.py search_eval --save reports/eval.json
 
-What this can and cannot measure
---------------------------------
-There is no labelled relevance data in this repository. Nothing records that
-a given query ought to return a given project, and none is invented here.
-Everything below is therefore an *unsupervised diagnostic* or a *known-item
-self-retrieval* check, not a measurement of relevance:
+There is no labelled relevance data in this repository and none is invented
+here. Every analysis is either an unsupervised diagnostic or a known-item
+self-retrieval check:
 
-  coverage       how much of the corpus is embedded and current
-  integrity      that stored vectors are normalised and self-identical
-  neighbours     each project's distance to its nearest other project
-  baseline       the same statistic for randomly drawn pairs
-  duplicates     pairs closer than a high cutoff, as duplicate candidates
-  proposal       a project's own title, and the first sentence of its
-                 abstract, used as a Similar Work Check concept query
-  timing         encode throughput and nearest-neighbour query latency
+    coverage     how much of the corpus is embedded and current
+    integrity    stored vectors are normalised and self-identical
+    neighbours   each project's distance to its nearest other project
+    baseline     the same statistic for randomly drawn pairs, and the
+                 percentile calibration written from it
+    duplicates   pairs above a high cutoff, as duplicate candidates
+    proposal     known-item self-retrieval for the Similar Work Check
+    thresholds   the concept threshold sweep and the standout-margin sweep
+    ranking      P@1, MRR, Recall@k and nDCG@k for the lexical, semantic and
+                 fused branches across several weightings
+    timing       encode throughput and k-NN query latency
 
-The `proposal` analysis is known-item retrieval: the correct answer is known
-because the proposal was built from the project itself. It measures whether
-the system can find a project from a description of it. It does not measure
-whether the other results are relevant, and it must not be reported as
-precision or recall.
+Known-item retrieval measures whether a specific project can be found from a
+description of it. It does not measure whether the other results are
+relevant, and must not be reported as general precision or recall.
 
-Comparison of lexical, semantic and fused ranking is deliberately absent.
-Hybrid search does not exist yet; that analysis belongs to the second version
-of this harness, once there is something to compare.
-
-Confidentiality
----------------
 Output is counts, scores, percentiles, identifiers and timings. No title,
 abstract, keyword or section text is read into anything printable.
 """

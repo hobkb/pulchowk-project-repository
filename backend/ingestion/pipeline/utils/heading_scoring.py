@@ -1,28 +1,24 @@
-"""
-Multi-signal heading detection.
+"""Multi-signal heading detection.
 
 A line becomes a heading candidate by combining several independently weak
-signals into one confidence score, rather than gating acceptance on any
-single one. The previous approach required either explicit numbering or an
-exact hit against a ~90-entry alias dictionary (MAJOR_SECTION_ALIASES) --
-which meant any unnumbered document using section wording outside that list
-produced zero headings for those sections, and their entire body silently
-became part of the previous recognized section's content.
+signals into one confidence score, rather than gating on any single one. The
+previous approach required explicit numbering or an exact hit against a
+~90-entry alias dictionary, so any unnumbered document using wording outside
+that list produced no headings and its body silently merged into the
+preceding section.
 
-Signals used here:
-    - numbering (and its depth, e.g. "2.3" implies a deeper heading than "2")
-    - boldness
-    - font size relative to the document's own body-text font size
-    - text shape (looks_like_heading: capitalization, length, punctuation)
-    - an optional semantic-alias hit (supporting evidence only, never a gate)
-    - whether the line is the first line of its own layout block
+Signals:
+    numbering, and its depth ("2.3" implies deeper than "2")
+    boldness
+    font size relative to the document's own body-text size
+    text shape (capitalisation, length, punctuation)
+    an optional alias hit -- supporting evidence only, never a gate
+    whether the line opens its own layout block
 
-None of these alone determines the outcome. A bold uppercase line is not
-automatically a heading; a line containing "Results" is not automatically a
-section boundary; a numbered line is not automatically a valid heading if it
-reads like a sentence ("3 respondents participated..."). The heading text
-itself (numbering stripped) is never rewritten to a canonical synonym here --
-that stays a separate, additive `semantic_role` classification.
+None alone decides the outcome: a bold uppercase line is not automatically a
+heading, and a numbered line that reads like a sentence is not a heading.
+Heading text is never rewritten to a canonical synonym here; that stays a
+separate additive `semantic_role` classification.
 """
 
 import re
