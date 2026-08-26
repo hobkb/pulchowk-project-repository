@@ -1,50 +1,4 @@
-"""Why two projects were considered related.
 
-The similarity itself is computed from sentence embeddings, and a cosine is
-not something a reader can act on. Neither is a corpus-relative percentile:
-"more similar than 98% of project pairs" sounds like a measurement of overlap
-and is not one, and a band such as "High similarity" says how strong the
-number was without saying what the projects have in common.
-
-This module reports what subject matter two projects actually share, drawn
-from their own recorded data rather than from the embedding. Nothing here
-influences retrieval, ranking, thresholds or ordering.
-
-Where the terms come from
--------------------------
-The weighted `search_vector` each project already maintains, so there is no
-second index to keep current. Its weight classes are used as defined:
-
-    A  title       subject matter
-    B  keywords    subject matter
-    C  abstract    corroborating only
-    D  people, department, cluster, batch    ignored entirely
-
-Excluding D is a confidentiality requirement as well as a correctness one.
-Two projects sharing a supervisor, department or intake year have nothing in
-common in subject matter, and naming a person as the reason two projects are
-related would disclose them.
-
-What makes a term worth showing
--------------------------------
-Three rules, all measured against the corpus rather than hand-listed, so no
-blocklist of generic words is needed and none would travel to another corpus.
-
-Rare. A term must occur in no more than MAX_DOCUMENT_FREQUENCY_SHARE of the
-corpus. This is what excludes "system", "application" and "machine learning",
-which occur in 70, 31 and 44 of the current 95 projects.
-
-Anchored. The term must appear in the title or keywords of at least one of
-the pair, not merely in both abstracts, or pairs get explained by whatever
-incidental vocabulary two abstracts happen to share. Over the 171 pairs
-Similar Projects returns, the anchored rule explains 72%; dropping the anchor
-reaches 98%, which means it is explaining pairs that have nothing to say.
-
-Plural. See MIN_SHARED_CONCEPTS.
-
-An empty result is meaningful: callers presenting recommendations drop the
-candidate rather than showing it without a reason.
-"""
 
 from django.db import connection
 
@@ -73,16 +27,38 @@ MIN_CORPUS_FOR_RARITY = 12
 
 MAX_TERMS = 3
 
-# How many distinct concepts a pair must share to be considered explained.
+# One genuinely specific shared concept is enough to justify a
+# recommendation. Two projects can be closely related on a single distinctive
+# subject term, and requiring more hides those pairings. What must not count
+# is a term that carries no subject matter -- see GENERIC_TERMS.
+MIN_SHARED_CONCEPTS = 1
+
+# Field vocabulary that never explains why two projects are related.
 #
-# One shared concept is not evidence of a relationship. Any two projects in an
-# engineering catalogue can coincide on a single term, and the rarity cut-off
-# cannot separate that from a real overlap: a term can be uncommon in the
-# corpus and still be the only thing the pair has in common. Requiring two
-# independent concepts is what distinguishes a relationship from a
-# coincidence. Counted after phrases are consolidated, so "Secure
-# Communication" counts once rather than twice.
-MIN_SHARED_CONCEPTS = 2
+# The corpus rarity rule (MAX_DOCUMENT_FREQUENCY_SHARE) removes terms that are
+# common *in this repository*, but a term can be rare here and still be
+# content-free -- an engineering catalogue is small, so a word like
+# "sentiment" or "framework" may appear in only a handful of projects while
+# saying nothing about what they have in common.
+#
+# This is a fixed list of general computing and engineering vocabulary, not
+# derived from the stored keywords, so it stays valid as the corpus changes.
+# Entries are matched after stemming, so a single form covers its
+# inflections. Keep it to words that are genuinely field-wide: a term that
+# names a real subject area belongs in the results.
+GENERIC_TERMS = frozenset("""
+    ai artificial intelligence machine learning deep learning neural network
+    algorithm model modelling training dataset data analysis analytics
+    system systems application applications app software hardware platform
+    framework architecture module engine tool toolkit service api interface
+    web website online internet digital smart intelligent automated automatic
+    project report study survey review research thesis implementation
+    development design approach method methodology technique process
+    management monitoring detection prediction classification recognition
+    processing optimization optimisation enhancement improvement efficient
+    performance evaluation simulation computer computing device mobile
+    sentiment based using real time technology information product
+""".split())
 
 # Lexemes shorter than this are noise once stemmed.
 MIN_TERM_LENGTH = 3
@@ -215,6 +191,20 @@ def _titlecase(text):
     return " ".join(words)
 
 
+def _generic_lexemes():
+    """GENERIC_TERMS as lexemes, so the list matches the stemmed index."""
+    global _GENERIC_LEXEME_CACHE
+    if _GENERIC_LEXEME_CACHE is None:
+        stems = _stem(sorted(GENERIC_TERMS))
+        _GENERIC_LEXEME_CACHE = frozenset(
+            lex for lexemes in stems.values() for lex in lexemes
+        )
+    return _GENERIC_LEXEME_CACHE
+
+
+_GENERIC_LEXEME_CACHE = None
+
+
 def _label_sources(project):
     """(keyword phrases, title words) -- both the project's own recorded data,
     kept apart because a curated keyword is the better label of the two."""
@@ -262,6 +252,7 @@ def shared_concepts(subject, candidates):
     if corpus < MIN_CORPUS_FOR_RARITY:
         return {c.pk: [] for c in candidates}
     cutoff = max(1, int(corpus * MAX_DOCUMENT_FREQUENCY_SHARE))
+    generic = _generic_lexemes()
 
     ids = [subject.pk] + [c.pk for c in candidates]
     lexemes = _lexemes_by_project(ids)
@@ -276,6 +267,7 @@ def shared_concepts(subject, candidates):
             if frequency.get(term, 0) <= cutoff
             and len(term) >= MIN_TERM_LENGTH
             and not term.isdigit()
+            and term not in generic
             and (term in subject_anchor or term in anchor)
         }
         labels = []
@@ -309,6 +301,7 @@ def concept_shared_concepts(text, candidates):
         return {c.pk: [] for c in candidates}
     cutoff = max(1, int(corpus * MAX_DOCUMENT_FREQUENCY_SHARE))
 
+    generic = _generic_lexemes()
     query_lexemes = _stem([text]).get(text.strip(), set())
     if not query_lexemes:
         return {c.pk: [] for c in candidates}
@@ -327,6 +320,7 @@ def concept_shared_concepts(text, candidates):
             if frequency.get(term, 0) <= cutoff
             and len(term) >= MIN_TERM_LENGTH
             and not term.isdigit()
+            and term not in generic
             and term in anchor
         }
         if shared:

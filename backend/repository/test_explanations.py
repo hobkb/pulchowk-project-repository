@@ -68,31 +68,32 @@ class SharedConceptTests(ExplanationTestBase):
             ["Steganography", "Watermarking"],
         )
 
-    def test_one_shared_concept_is_not_enough_to_recommend(self):
-        """The rule this exists for. Two projects coinciding on a single
-        term is the sort of thing that happens by chance across any
-        engineering catalogue, and a recommendation resting on it cannot be
-        justified to the reader, so nothing is returned at all."""
+    def test_one_specific_shared_concept_is_enough(self):
+        """Two projects can be genuinely related on a single distinctive
+        term; requiring more would hide those pairings."""
         left = self.make_project("Hiding data in images",
                                  keywords=["Steganography"])
         right = self.make_project("Recovering hidden payloads",
                                   keywords=["Steganography"])
+        self.assertEqual(self.explain(left, right), ["Steganography"])
+
+    def test_field_vocabulary_never_explains_a_pairing(self):
+        """Corpus rarity alone is not enough: a small catalogue makes
+        content-free words look rare, so general computing vocabulary is
+        excluded by name regardless of how often it occurs here."""
+        left = self.make_project("Sentiment scoring",
+                                 keywords=["Sentiment Analysis", "System"])
+        right = self.make_project("Sentiment engine",
+                                  keywords=["Sentiment Analysis", "System"])
         self.assertEqual(self.explain(left, right), [])
 
-    def test_one_concept_plus_generic_words_is_still_not_enough(self):
-        """The generic words are common by construction, so they never
-        count, and what is left is a single concept."""
-        left = self.make_project(
-            "A platform for concealment",
-            abstract="A platform built for coursework.",
-            keywords=["Steganography"],
-        )
-        right = self.make_project(
-            "A platform for retrieval",
-            abstract="A platform built for coursework.",
-            keywords=["Steganography"],
-        )
-        self.assertEqual(self.explain(left, right), [])
+    def test_a_specific_term_survives_beside_field_vocabulary(self):
+        left = self.make_project("Hiding data",
+                                 keywords=["Steganography", "System", "AI"])
+        right = self.make_project("Finding hidden data",
+                                  keywords=["Steganography", "System", "AI"])
+        terms = self.explain(left, right)
+        self.assertEqual(terms, ["Steganography"])
 
     def test_the_concept_threshold_is_the_configured_one(self):
        
