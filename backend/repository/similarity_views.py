@@ -53,7 +53,7 @@ class SimilarProjectsView(APIView):
     routinely are not. An empty list is a real answer.
     """
 
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, project_id):
         try:

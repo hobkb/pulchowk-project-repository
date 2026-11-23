@@ -18,6 +18,7 @@ from repository.models import (
     ProjectSection,
 )
 from repository.serializers import build_section_tree
+from repository.testing import reader, reader_client
 
 
 class SectionTreeReconstructionTests(TestCase):
@@ -274,7 +275,7 @@ class ProjectSearchTests(TestCase):
         ProjectKeyword.objects.create(project=self.tracker, keyword=keyword)
 
     def _search(self, **params):
-        response = APIClient().get(reverse("repository:project-list"), params)
+        response = reader_client().get(reverse("repository:project-list"), params)
         self.assertEqual(response.status_code, 200)
         return [p["title"] for p in response.data["data"]]
 
@@ -357,7 +358,7 @@ class ProjectFacetsTests(TestCase):
         )
 
     def test_facets_count_only_published_projects(self):
-        response = APIClient().get(reverse("repository:project-facets"))
+        response = reader_client().get(reverse("repository:project-facets"))
         self.assertEqual(response.status_code, 200)
         data = response.data["data"]
 
@@ -419,15 +420,13 @@ class ReportConfidentialityTests(TestCase):
         self.assertEqual(response.status_code, 200)
         return response
 
-    def test_anonymous_gets_abstract_but_no_report_body(self):
-        response = self._detail()
-        data = response.data["data"]
+    def test_anonymous_gets_nothing_at_all(self):
+        response = APIClient().get(
+            reverse("repository:project-detail", args=[self.project.id])
+        )
 
-        self.assertEqual(data["abstract"], "This abstract is public.")
-        self.assertEqual(data["sections"], [])
-        self.assertEqual(data["references"], [])
-        self.assertEqual(data["resultsSummary"], "")
-        self.assertTrue(data["sections_restricted"])
+        self.assertEqual(response.status_code, 401)
+        self.assertNotIn("abstract", response.content.decode())
         self.assertNotIn("SECRET", response.content.decode())
 
     def test_ordinary_signed_in_user_also_gets_no_report_body(self):
@@ -466,13 +465,13 @@ class ReportConfidentialityTests(TestCase):
         self.assertEqual(len(data["sections"]), 2)
 
     def test_list_endpoint_never_leaks_section_text_to_the_public(self):
-        response = APIClient().get(reverse("repository:project-list"))
+        response = reader_client().get(reverse("repository:project-list"))
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("SECRET", response.content.decode())
         self.assertEqual(response.data["data"][0]["resultsSummary"], "")
 
     def test_pdf_url_is_withheld_from_ordinary_users(self):
-        self.assertIsNone(self._detail().data["data"]["pdfUrl"])
+        self.assertIsNone(self._detail(reader()).data["data"]["pdfUrl"])
 
 
 class BookmarkAPITests(TestCase):
@@ -594,7 +593,7 @@ class ClusterAndSupervisorFilterTests(TestCase):
         return project
 
     def _titles(self, **params):
-        response = APIClient().get(reverse("repository:project-list"), params)
+        response = reader_client().get(reverse("repository:project-list"), params)
         self.assertEqual(response.status_code, 200)
         return [p["title"] for p in response.data["data"]]
 
@@ -621,11 +620,11 @@ class ClusterAndSupervisorFilterTests(TestCase):
         self.assertIn("Legacy record", self._titles())
 
     def test_cluster_is_returned_by_the_api(self):
-        response = APIClient().get(reverse("repository:project-detail", args=[self.aiml.id]))
+        response = reader_client().get(reverse("repository:project-detail", args=[self.aiml.id]))
         self.assertEqual(response.data["data"]["cluster"], "AIML")
 
     def test_facets_expose_clusters_supervisors_and_the_vocabulary(self):
-        data = APIClient().get(reverse("repository:project-facets")).data["data"]
+        data = reader_client().get(reverse("repository:project-facets")).data["data"]
 
         self.assertEqual(
             data["clusters"], [{"name": "AIML", "count": 2}, {"name": "NTS", "count": 1}]
@@ -830,13 +829,13 @@ class PublishDepartmentResolutionTests(TestCase):
 
     def test_department_is_returned_by_the_api(self):
         project = self._publish("Department of Architecture")
-        response = APIClient().get(
+        response = reader_client().get(
             reverse("repository:project-detail", args=[project.id])
         )
         self.assertEqual(response.data["data"]["department"], "Department of Architecture")
 
     def test_facets_expose_the_department_vocabulary(self):
-        data = APIClient().get(reverse("repository:project-facets")).data["data"]
+        data = reader_client().get(reverse("repository:project-facets")).data["data"]
         self.assertEqual(len(data["department_choices"]), 6)
         self.assertIn(
             "Department of Electronics and Computer Engineering",
@@ -886,7 +885,7 @@ class SupervisorPersistedAndDisplayedTests(TestCase):
         return job.published_project
 
     def _api(self, project):
-        response = APIClient().get(
+        response = reader_client().get(
             reverse("repository:project-detail", args=[project.id])
         )
         self.assertEqual(response.status_code, 200)
@@ -970,12 +969,12 @@ class FilterAwareFacetTests(TestCase):
         return project
 
     def _facets(self, **params):
-        response = APIClient().get(reverse("repository:project-facets"), params)
+        response = reader_client().get(reverse("repository:project-facets"), params)
         self.assertEqual(response.status_code, 200)
         return response.data["data"]
 
     def _results(self, **params):
-        response = APIClient().get(reverse("repository:project-list"), params)
+        response = reader_client().get(reverse("repository:project-list"), params)
         self.assertEqual(response.status_code, 200)
         return response.data["data"]
 
@@ -1219,7 +1218,6 @@ class ReportAccessRequestTests(TestCase):
         )
 
         self.assertIsNone(self._detail(self.other_student)["pdfUrl"])
-        self.assertIsNone(self._detail()["pdfUrl"])
 
     def test_approval_does_not_expose_the_report_body(self):
         """Access to the PDF is not access to the extracted sections."""

@@ -184,7 +184,7 @@ class FacultyListView(APIView):
     """
     Returns a list of extracted / existing faculty members for selection during onboarding.
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         faculties = Faculty.objects.all().order_by("full_name")
@@ -315,7 +315,7 @@ class FacultyCreateView(APIView):
 
 
 class StudentListView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         from django.db import models

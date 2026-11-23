@@ -12,6 +12,7 @@ from repository.explanations import (
 from organization.models import Campus, Department
 from repository.models import Keyword, Project, ProjectKeyword
 from repository.search_index import update_search_vector
+from repository.testing import reader_client
 
 CORPUS = 25
 
@@ -318,7 +319,7 @@ class ExplanationEndpointTests(ExplanationTestBase):
             "Recovering hidden payloads",
             keywords=["Steganography", "Watermarking"],
         )
-        self.api = APIClient()
+        self.api = reader_client()
 
     def _payload(self):
         response = self.api.get(

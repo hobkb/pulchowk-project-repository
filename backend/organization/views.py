@@ -1,27 +1,24 @@
 from rest_framework.generics import ListAPIView
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from .models import Campus, Department, ResearchGroup
 from .serializers import CampusSerializer, DepartmentSerializer, ResearchGroupSerializer
 
 class CampusListView(ListAPIView):
     queryset = Campus.objects.all()
     serializer_class = CampusSerializer
-    authentication_classes = []
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
 class DepartmentListView(ListAPIView):
     """
-    Public endpoint to list all available departments.
+    Lists all departments, for signed-in users (onboarding, filters).
     """
     queryset = Department.objects.all().select_related("campus")
     serializer_class = DepartmentSerializer
-    authentication_classes = []
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
 class ResearchGroupListView(ListAPIView):
     serializer_class = ResearchGroupSerializer
-    authentication_classes = []
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         queryset = ResearchGroup.objects.all().select_related("department")

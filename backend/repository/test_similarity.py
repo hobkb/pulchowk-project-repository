@@ -25,6 +25,7 @@ from repository.similarity import (
     percentile_for,
     similar_projects,
 )
+from repository.testing import reader_client
 
 MODEL_VERSION = "test-model-v1"
 DIM = 384
@@ -506,7 +507,7 @@ class SimilarityEndpointTests(SimilarityTestBase):
         )
         # Authentication here is cookie-borne JWT, so a Django session login
         # would not authenticate a DRF view.
-        self.api = APIClient()
+        self.api = reader_client()
 
     def _similar_url(self):
         return reverse("repository:project-similar", args=[self.subject.pk])
@@ -588,7 +589,7 @@ class SimilarityEndpointTests(SimilarityTestBase):
         self.assertEqual(response.status_code, 400)
 
     def test_similarity_check_requires_authentication(self):
-        response = self.api.post(
+        response = APIClient().post(
             reverse("repository:similarity-check"),
             {"concept": "an idea"},
             format="json",

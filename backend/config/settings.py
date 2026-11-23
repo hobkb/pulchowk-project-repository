@@ -145,6 +145,11 @@ REST_FRAMEWORK = {
         "accounts.authentication.CookieJWTAuthentication",  # Custom authentication class
         "rest_framework_simplejwt.authentication.JWTAuthentication", # default authentication class as fallback
     ],
+    # Everything requires a signed-in campus account unless a view opts out
+    # explicitly (only sign-in, token refresh and logout do).
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
     "EXCEPTION_HANDLER": "core.exceptions.custom_exception_handler",
 
 }

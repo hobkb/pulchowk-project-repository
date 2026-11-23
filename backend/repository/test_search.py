@@ -6,9 +6,13 @@ from rest_framework.test import APITestCase
 from accounts.models import Faculty, Student
 from organization.models import Campus, Department
 from repository.models import Project, ProjectPerson
+from repository.testing import reader_client
 
 
 class SearchTests(APITestCase):
+    def setUp(self):
+        self.client = reader_client()
+
     @classmethod
     def setUpTestData(cls):
         campus = Campus.objects.get_or_create(name="Pulchowk Campus")[0]

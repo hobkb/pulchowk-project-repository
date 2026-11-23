@@ -115,7 +115,7 @@ def apply_filters(queryset, params, exclude=None, defer_search=False):
 
 
 class ProjectListView(APIView):
-    """Public read-only list of Published projects.
+    """Read-only list of Published projects, for signed-in users.
 
     Unpublished and processing jobs live in the ingestion app. All query
     parameters are optional and applied server-side: q (see apply_search),
@@ -123,7 +123,7 @@ class ProjectListView(APIView):
     (default 12, max 100).
     """
 
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         search = (request.query_params.get("q") or "").strip()
@@ -175,7 +175,7 @@ class ProjectFacetsView(APIView):
     that match nothing).
     """
 
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         params = request.query_params
@@ -268,9 +268,9 @@ class ProjectFacetsView(APIView):
 
 
 class ProjectDetailView(APIView):
-    """Public read-only detail view for a single verified project."""
+    """Read-only detail view for a single verified project, for signed-in users."""
 
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, project_id):
         project = get_published_project_queryset().filter(id=project_id).first()
@@ -290,9 +290,9 @@ class ProjectDetailView(APIView):
 
 class ProjectChoicesView(APIView):
     """
-    Public endpoint exposing backend-defined choices and batch constraints.
+    Backend-defined choices and batch constraints, for signed-in users.
     """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         from datetime import datetime

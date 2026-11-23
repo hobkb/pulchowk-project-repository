@@ -5,9 +5,13 @@ from rest_framework.test import APITestCase
 from accounts.models import User
 from organization.models import Campus, Department
 from repository.models import Project
+from repository.testing import reader_client
 
 
 class ProjectPaginationTests(APITestCase):
+    def setUp(self):
+        self.client = reader_client()
+
     @classmethod
     def setUpTestData(cls):
         campus = Campus.objects.get_or_create(name="Pulchowk Campus")[0]

@@ -11,6 +11,7 @@ from repository.hybrid_search import hybrid_ranking, semantic_ranking
 from repository.indexing import defer_indexing, queue_project_indexing
 from repository.models import Keyword, Project, ProjectEmbedding, ProjectKeyword
 from repository.search_index import update_search_vector
+from repository.testing import reader_client
 
 MODEL_VERSION = "test-model-v1"
 DIM = 384
@@ -166,7 +167,7 @@ class SearchEndpointTests(IndexingTestBase):
             "Mesh routing", abstract="Ad hoc network routing."
         )
         self.embed(self.other, axis_vector(9))
-        self.api = APIClient()
+        self.api = reader_client()
 
     def _ids(self, params):
         with override_settings(ALLOWED_HOSTS=["*"]), patch(

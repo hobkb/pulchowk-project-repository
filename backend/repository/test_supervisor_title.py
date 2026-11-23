@@ -11,6 +11,7 @@ from ingestion.pipeline.utils.text_cleaners import (
 )
 from organization.models import Campus, Department
 from repository.models import Project, ProjectPerson
+from repository.testing import reader_client
 
 
 class SplitTitleAndDesignationTests(SimpleTestCase):
@@ -81,7 +82,7 @@ class SupervisorDisplayTests(TestCase):
         return project
 
     def test_the_project_page_shows_the_honorific_with_the_rank(self):
-        response = APIClient().get(
+        response = reader_client().get(
             reverse("repository:project-detail", args=[self.with_doctor.id])
         )
         supervisors = response.data["data"]["supervisors"]
@@ -91,14 +92,14 @@ class SupervisorDisplayTests(TestCase):
         self.assertIn("Asst. Prof.", supervisors[0])
 
     def test_a_supervisor_without_an_honorific_reads_cleanly(self):
-        response = APIClient().get(reverse("repository:project-list"))
+        response = reader_client().get(reverse("repository:project-list"))
         rows = {r["title"]: r for r in response.data["data"]}
         plain = rows["Plainly supervised"]["supervisors"][0]
         self.assertEqual(plain, "Asst. Prof. Santosh Giri")
         self.assertNotIn("  ", plain)
 
     def test_the_search_facet_carries_the_honorific_separately(self):
-        data = APIClient().get(reverse("repository:project-facets")).data["data"]
+        data = reader_client().get(reverse("repository:project-facets")).data["data"]
         by_name = {row["name"]: row for row in data["supervisors"]}
 
         self.assertEqual(by_name["Rajiv Bhandari"]["title"], "Dr.")

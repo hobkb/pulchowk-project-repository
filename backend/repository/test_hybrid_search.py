@@ -15,6 +15,7 @@ from repository.hybrid_search import (
 )
 from repository.models import Keyword, Project, ProjectEmbedding, ProjectKeyword
 from repository.search_index import lexical_queryset, update_search_vector
+from repository.testing import reader_client
 
 MODEL_VERSION = "test-model-v1"
 DIM = 384
@@ -305,7 +306,7 @@ class ProjectTypeFilterTests(SearchTestBase):
         self.major_a = self.make_project("Major one", project_type="Major")
         self.major_b = self.make_project("Major two", project_type="Major")
         self.minor = self.make_project("Minor one", project_type="Minor")
-        self.api = APIClient()
+        self.api = reader_client()
 
     def _ids(self, params):
         with override_settings(ALLOWED_HOSTS=["*"]):

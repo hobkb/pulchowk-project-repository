@@ -15,6 +15,7 @@ from accounts.models import Faculty
 from organization.models import Campus, Department
 from repository.models import Project, ProjectPerson
 from repository.serializers import _strip_redundant_rank
+from repository.testing import reader_client
 
 
 class StripRedundantRankTests(SimpleTestCase):
@@ -69,7 +70,7 @@ class SupervisorDisplayStringTests(TestCase):
         )
         project = self._project(faculty)
 
-        response = APIClient().get(reverse("repository:project-detail", args=[project.id]))
+        response = reader_client().get(reverse("repository:project-detail", args=[project.id]))
         supervisor = response.data["data"]["supervisors"][0]
 
         self.assertEqual(supervisor, "Prof. Dr. Rajan Bhandari")
@@ -82,7 +83,7 @@ class SupervisorDisplayStringTests(TestCase):
             title="Dr.", designation="Assistant Professor",
         )
         project = self._project(faculty)
-        response = APIClient().get(reverse("repository:project-detail", args=[project.id]))
+        response = reader_client().get(reverse("repository:project-detail", args=[project.id]))
         self.assertEqual(
             response.data["data"]["supervisors"][0], "Asst. Prof. Dr. Sita Karki"
         )
