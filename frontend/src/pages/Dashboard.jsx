@@ -112,7 +112,7 @@ export default function Dashboard() {
           <p className="mt-3 max-w-2xl text-base text-ink-2">
             A catalogue of student and faculty engineering project reports submitted at Pulchowk
             Campus. Each record lists its authors, supervisor, department and abstract. Full
-            reports remain confidential and can be requested from their authors.
+            reports remain confidential; access can be requested from the department.
           </p>
 
           <div className="mt-6 max-w-2xl">

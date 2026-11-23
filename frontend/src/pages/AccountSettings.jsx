@@ -53,7 +53,7 @@ function accessLevel(user) {
     tone: "neutral",
     title: user?.role === "faculty" ? "Faculty" : "Student",
     detail:
-      "You can search the catalogue and read project abstracts. Full reports can be requested from their authors.",
+      "You can search the catalogue and read project abstracts. Access to a full report can be requested from the department.",
   };
 }
 

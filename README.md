@@ -96,7 +96,7 @@ Open http://localhost:5173 and sign in with a `@pcampus.edu.np` Google account.
 The first sign-in asks you to complete a profile.
 
 The defaults in `backend/.env.example` match `docker-compose.yml`, so only the Google client ID has to be filled in.
-The embedding model (about 130 MB) downloads from Hugging Face the first time search or ingestion runs.
+The embedding model (about 130 MB) downloads from Hugging Face the first time search or ingestion runs, so the first search takes a few seconds; set `EMBEDDING_PREWARM=1` in `backend/.env` to load it at startup instead.
 
 ### First administrator
 

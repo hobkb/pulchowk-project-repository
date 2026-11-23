@@ -1,5 +1,7 @@
 
-const BASE = import.meta.env.VITE_API_BASE_URL;
+// Without VITE_API_BASE_URL, requests go to /api/ on the dev server, which
+// vite.config.js proxies to the backend (same origin, so cookies just work).
+const BASE = import.meta.env.VITE_API_BASE_URL || "/api/";
 const REFRESH_PATH = "accounts/token/refresh/";
 
 // Called once the shared token refresh itself fails, so the app can react
