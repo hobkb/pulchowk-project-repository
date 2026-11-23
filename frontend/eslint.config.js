@@ -39,6 +39,11 @@ export default defineConfig([
     },
   },
   {
+    // Build tooling runs in Node, not the browser, so it reads `process`.
+    files: ['vite.config.js'],
+    languageOptions: { globals: globals.node },
+  },
+  {
     // These modules intentionally export helpers next to their provider
     // or component (a context's own hook, the shared tone table, the
     // notification formatters). That costs a little HMR granularity in
