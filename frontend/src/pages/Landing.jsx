@@ -58,7 +58,7 @@ export default function Landing() {
               </p>
               <p className="mt-3 text-base text-ink-2">
                 Full project reports are held confidentially by the department and are not
-                published here; a copy can be requested from a project&rsquo;s authors.
+                published here; access can be requested from the department after signing in.
               </p>
             </div>
 
