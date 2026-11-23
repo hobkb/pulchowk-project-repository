@@ -36,21 +36,21 @@ class OnboardingIdentityTests(APITestCase):
         """The roll number comes from the verified address, so this is safe."""
         extracted = Student.objects.create(
             full_name="Old Extracted Name",
-            roll_number="080BCT083",
+            roll_number="080BCT102",
             academic_level="UG",
-            email="080bct083.wrongguess@pcampus.edu.np",
+            email="080bct102.wrongguess@pcampus.edu.np",
             department=self.dept,
         )
-        user, response = self.onboard("080bct083.siwansh@pcampus.edu.np", {
-            "role": "student", "full_name": "Siwansh Pathak",
-            "academic_level": "UG", "roll_number": "080BCT083",
+        user, response = self.onboard("080bct102.sita@pcampus.edu.np", {
+            "role": "student", "full_name": "Sita Sharma",
+            "academic_level": "UG", "roll_number": "080BCT102",
             "department_id": self.dept.id,
         })
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(Student.objects.filter(roll_number="080BCT083").count(), 1)
+        self.assertEqual(Student.objects.filter(roll_number="080BCT102").count(), 1)
         extracted.refresh_from_db()
         self.assertEqual(extracted.id, user.person_id)
-        self.assertEqual(extracted.email, "080bct083.siwansh@pcampus.edu.np")
+        self.assertEqual(extracted.email, "080bct102.sita@pcampus.edu.np")
 
     def test_a_typed_roll_number_cannot_claim_someone_elses_record(self):
         Student.objects.create(
@@ -58,8 +58,8 @@ class OnboardingIdentityTests(APITestCase):
             academic_level="UG", email="079bct001.other@pcampus.edu.np",
         )
         # This address carries no roll number, so the roll is only typed.
-        user, response = self.onboard("siwansh@pcampus.edu.np", {
-            "role": "student", "full_name": "Siwansh Pathak",
+        user, response = self.onboard("sita@pcampus.edu.np", {
+            "role": "student", "full_name": "Sita Sharma",
             "academic_level": "UG", "roll_number": "079BCT001",
             "department_id": self.dept.id,
         })
@@ -67,14 +67,14 @@ class OnboardingIdentityTests(APITestCase):
         self.assertIsNone(user.person_id)
 
     def test_the_roll_number_in_the_address_wins_over_a_typed_one(self):
-        user, response = self.onboard("080bct083.siwansh@pcampus.edu.np", {
-            "role": "student", "full_name": "Siwansh Pathak",
+        user, response = self.onboard("080bct102.sita@pcampus.edu.np", {
+            "role": "student", "full_name": "Sita Sharma",
             "academic_level": "UG",
             "roll_number": "079BCT999",   # someone else's
             "department_id": self.dept.id,
         })
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(user.person.student.roll_number, "080BCT083")
+        self.assertEqual(user.person.student.roll_number, "080BCT102")
 
     def test_re_onboarding_updates_rather_than_duplicating(self):
         email = "080bct084.asha@pcampus.edu.np"

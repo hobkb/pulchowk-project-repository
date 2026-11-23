@@ -96,7 +96,7 @@ class BundleMergeTests(TestCase):
         """The whole point: no split project list in the search facet."""
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
             make_bundle(a, "asha", [
-                project_record("Vision system", people=[SUPERVISOR, student("Nischal Karki", "078BEL011")]),
+                project_record("Vision system", people=[SUPERVISOR, student("Nischal Karki", "078BEL101")]),
             ])
             make_bundle(b, "bikash", [
                 project_record("Mesh routing", people=[SUPERVISOR, student("Rita Thapa", "078BEL012")]),
@@ -114,7 +114,7 @@ class BundleMergeTests(TestCase):
     def test_importing_the_same_bundle_twice_changes_nothing(self):
         with tempfile.TemporaryDirectory() as a:
             make_bundle(a, "asha", [
-                project_record("Vision system", people=[SUPERVISOR, student("Nischal Karki", "078BEL011")],
+                project_record("Vision system", people=[SUPERVISOR, student("Nischal Karki", "078BEL101")],
                                keywords=["machine learning", "traffic"]),
             ])
             self.merge(a)
@@ -140,13 +140,13 @@ class BundleMergeTests(TestCase):
 
     def test_a_student_is_matched_on_roll_number_not_name(self):
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
-            make_bundle(a, "asha", [project_record("P1", people=[student("Nischal Karki", "078BEL011")])])
+            make_bundle(a, "asha", [project_record("P1", people=[student("Nischal Karki", "078BEL101")])])
             # Same roll, name recorded slightly differently on the other machine.
-            make_bundle(b, "bikash", [project_record("P2", people=[student("Nischal  karki", "078BEL011")])])
+            make_bundle(b, "bikash", [project_record("P2", people=[student("Nischal  karki", "078BEL101")])])
             self.merge(a)
             self.merge(b)
 
-        self.assertEqual(Student.objects.filter(roll_number="078BEL011").count(), 1)
+        self.assertEqual(Student.objects.filter(roll_number="078BEL101").count(), 1)
 
     def test_a_merge_never_blanks_a_hand_corrected_value(self):
         """An administrator's correction must survive a later import."""

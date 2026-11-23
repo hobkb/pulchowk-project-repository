@@ -260,7 +260,7 @@ class ProjectSearchTests(TestCase):
         )
 
         student = Student.objects.create(
-            full_name="Nischal Karki", roll_number="078BEL011", academic_level="UG"
+            full_name="Nischal Karki", roll_number="078BEL101", academic_level="UG"
         )
         ProjectPerson.objects.create(
             project=self.tracker, person=student, role="Author", display_order=1

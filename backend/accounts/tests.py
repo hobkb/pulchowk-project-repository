@@ -40,17 +40,17 @@ class CurrentUserProfileSerializerTests(TestCase):
 
         student = Student.objects.create(
             full_name="Nischal Karki",
-            roll_number="078BEL011",
+            roll_number="078BEL101",
             academic_level="UG",
             department=self.department,
         )
         user = User.objects.create_user(
-            email="078bel011.nischal@pcampus.edu.np", password="secret123", person=student
+            email="078bel101.hari@pcampus.edu.np", password="secret123", person=student
         )
 
         profile = self._me(user)["profile"]
         self.assertEqual(profile["kind"], "student")
-        self.assertEqual(profile["roll_number"], "078BEL011")
+        self.assertEqual(profile["roll_number"], "078BEL101")
         self.assertEqual(profile["academic_level"], "UG")
         self.assertEqual(profile["department"], "Electronics Engineering")
 
@@ -242,10 +242,10 @@ class OnboardingRoleSelectionTests(TestCase):
         )
 
     def test_a_letter_prefixed_address_can_still_onboard_as_a_student(self):
-        user, _ = self._onboard("siwansh@pcampus.edu.np", {
-            "role": "student", "full_name": "Siwansh Student",
-            "academic_level": "UG", "roll_number": "080BCT083",
+        user, _ = self._onboard("sita@pcampus.edu.np", {
+            "role": "student", "full_name": "Sita Student",
+            "academic_level": "UG", "roll_number": "080BCT102",
             "department_id": self.department.id,
         })
         self.assertEqual(user.role, "student")
-        self.assertEqual(user.person.student.roll_number, "080BCT083")
+        self.assertEqual(user.person.student.roll_number, "080BCT102")

@@ -75,7 +75,7 @@ class JobPublishAPIViewTests(TestCase):
                         "role": "Author",
                         "display_order": 1,
                         "academic_level": "Masters",
-                        "roll_number": "080BCT077",
+                        "roll_number": "080BCT001",
                     },
                     {
                         "full_name": "Bob Supervisor",
@@ -125,7 +125,7 @@ class JobPublishAPIViewTests(TestCase):
         self.assertEqual(project.department.name, "Computer Engineering")
         self.assertEqual(project.research_group.name, "AI Lab")
         self.assertEqual(project.project_people.count(), 2)
-        self.assertTrue(Student.objects.filter(full_name="Alice Example", roll_number="080BCT077").exists())
+        self.assertTrue(Student.objects.filter(full_name="Alice Example", roll_number="080BCT001").exists())
         self.assertTrue(Faculty.objects.filter(full_name="Bob Supervisor", designation="Professor").exists())
         self.assertEqual(project.project_keywords.count(), 2)
         self.assertEqual(project.project_domains.count(), 1)
@@ -165,7 +165,7 @@ class JobPublishAPIViewTests(TestCase):
                         "role": "Author",
                         "display_order": 1,
                         "academic_level": "Masters",
-                        "roll_number": "080BCT077",
+                        "roll_number": "080BCT001",
                     },
                 ],
             },
@@ -187,7 +187,7 @@ class JobPublishAPIViewTests(TestCase):
         self.assertTrue(
             Student.objects.filter(
                 full_name="Alice Example",
-                roll_number="080BCT077",
+                roll_number="080BCT001",
             ).exists()
         )
 
@@ -215,7 +215,7 @@ class JobPublishAPIViewTests(TestCase):
                         "role": "Author",
                         "display_order": 1,
                         "academic_level": "Masters",
-                        "roll_number": "080BCT077",
+                        "roll_number": "080BCT001",
                     },
                     {
                         "full_name": "dr. ramesh sharma",
@@ -241,7 +241,7 @@ class JobPublishAPIViewTests(TestCase):
         response = client.post(reverse("ingestion:job-publish", args=[job.id]))
 
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertTrue(Student.objects.filter(full_name="Alice Example", roll_number="080BCT077").exists())
+        self.assertTrue(Student.objects.filter(full_name="Alice Example", roll_number="080BCT001").exists())
         self.assertTrue(Faculty.objects.filter(full_name="Ramesh Sharma").exists())
         self.assertTrue(ProjectSection.objects.filter(canonical_section="Literature Review").exists())
 

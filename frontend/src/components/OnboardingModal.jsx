@@ -28,13 +28,13 @@ export default function OnboardingModal() {
 
   const prefill = user?.prefill_data || {};
 
-  // Extract roll number from institutional email (e.g. 080bct077.sarthak@pcampus.edu.np -> 080BCT077)
+  // Extract roll number from institutional email (e.g. 080bct001.ram@pcampus.edu.np -> 080BCT001)
   const autoRollNumber = (() => {
     if (prefill.roll_number) return prefill.roll_number;
     if (!user?.email) return "";
     const username = user.email.split("@")[0];
     const roll = username.includes(".") ? username.split(".")[0] : username;
-    // A campus roll is three digits, letters, then digits (080BCT083).
+    // A campus roll is three digits, letters, then digits (080BCT102).
     // Anything else -- a personal address, a name -- is not a roll number
     // and must not be pre-filled as one.
     return /^\d{3}[a-zA-Z]{2,5}\d{2,4}$/.test(roll) ? roll.toUpperCase() : "";
@@ -168,7 +168,7 @@ export default function OnboardingModal() {
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   className={fieldInput}
-                  placeholder="e.g. Sarthak Khadka"
+                  placeholder="e.g. Ram Bahadur Thapa"
                 />
               </div>
 
@@ -221,7 +221,7 @@ export default function OnboardingModal() {
                     className={`${fieldInput} tnum ${
                       rollNumberLocked ? "bg-band pr-9 text-ink-2 cursor-not-allowed" : ""
                     }`}
-                    placeholder="e.g. 080BCT083"
+                    placeholder="e.g. 080BCT102"
                   />
                   {rollNumberLocked && (
                     <FontAwesomeIcon

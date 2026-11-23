@@ -84,7 +84,7 @@ class MyProfileView(APIView):
                 roll = clean_roll_number(str(data["roll_number"]).strip())
                 if not ROLL_PATTERN.fullmatch(roll or ""):
                     raise ValidationError(
-                        {"roll_number": "Enter a roll number such as 080BCT083."}
+                        {"roll_number": "Enter a roll number such as 080BCT102."}
                     )
                 taken = (
                     Student.objects.filter(roll_number=roll)

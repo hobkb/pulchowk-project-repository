@@ -120,7 +120,7 @@ class ProfileService:
     def infer_role_from_email(email: str) -> str:
         """
         Determines whether the email belongs to a Student or Faculty.
-        Student emails start with roll/batch digits (e.g. 080bct077.sarthak@pcampus.edu.np).
+        Student emails start with roll/batch digits (e.g. 080bct001.ram@pcampus.edu.np).
         Faculty emails start with letters (e.g. ram.shrestha@pcampus.edu.np).
         """
         username = email.split("@")[0] if email else ""
@@ -145,7 +145,7 @@ class ProfileService:
     @staticmethod
     def extract_roll_number_from_email(email: str) -> str:
         """
-        Extracts student roll number from email (e.g. 080bct077.sarthak@pcampus.edu.np -> 080BCT077).
+        Extracts student roll number from email (e.g. 080bct001.ram@pcampus.edu.np -> 080BCT001).
         """
         username = email.split("@")[0] if email else ""
         roll = username.split(".")[0] if "." in username else username
