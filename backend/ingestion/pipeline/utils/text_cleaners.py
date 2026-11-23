@@ -58,7 +58,7 @@ TITLE_PATTERN = re.compile(
 _PERSON_TITLE_TOKEN = (
     r"(?:Assoc\.?\s*Prof(?:essor)?\.?|Associate\s+Prof(?:essor)?\.?"
     r"|Asst\.?\s*Prof(?:essor)?\.?|Assistant\s+Prof(?:essor)?\.?"
-    r"|Prof(?:essor)?\.?|Drs\.?|Dr\.?|Mr\.?|Mrs\.?|Ms\.?|Miss|Engr\.?|Rev\.?|Hon\.?)"
+    r"|Prof(?:essor)?\.?|Drs\.?|Dr\.?|Er\.?|Mr\.?|Mrs\.?|Ms\.?|Miss|Engr\.?|Rev\.?|Hon\.?)"
 )
 
 # Matches one or more stacked title tokens at the start of a name, e.g.

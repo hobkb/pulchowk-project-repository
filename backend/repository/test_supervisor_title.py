@@ -36,6 +36,15 @@ class SplitTitleAndDesignationTests(SimpleTestCase):
         self.assertEqual(name, "Manoj Shrestha")
         self.assertEqual(split_title_and_designation(prefix), ("Dr.", "Prof."))
 
+    def test_the_engineer_honorific_is_split_from_the_name(self):
+        self.assertEqual(split_person_title("Er. Ram Sharma"), ("Ram Sharma", "Er."))
+        name, prefix = split_person_title("Asst. Prof. Er. Ram Sharma")
+        self.assertEqual(name, "Ram Sharma")
+        self.assertEqual(split_title_and_designation(prefix), ("Er.", "Asst. Prof."))
+
+    def test_a_name_that_merely_starts_with_er_is_left_alone(self):
+        self.assertEqual(split_person_title("Erina Shrestha"), ("Erina Shrestha", ""))
+
 
 class SupervisorDisplayTests(TestCase):
     """What the catalogue and the facet list actually render."""
