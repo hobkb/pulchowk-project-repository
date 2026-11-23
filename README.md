@@ -52,54 +52,91 @@ notebooks/         Pipeline debugging notebook
 
 - Python 3.12
 - Node.js 20 or newer
-- PostgreSQL 16 with `pgvector` (for example `sudo apt install postgresql-16-pgvector`, or the `pgvector/pgvector:pg16` Docker image)
-- Redis, for the Celery broker
-- A Google OAuth client ID for web sign-in
+- Docker with Compose, for PostgreSQL (with `pgvector`) and Redis. To use your own instead, see [Without Docker](#without-docker).
+- A Google OAuth client ID, see [Google sign-in](#google-sign-in)
 
-### Backend
+### Quickstart
+
+From the repository root, in four terminals:
 
 ```bash
-cd backend
-python3.12 -m venv .venv
-source .venv/bin/activate
-
-# Optional, on a machine without a GPU: install the CPU build of PyTorch first
-# to skip the multi-gigabyte CUDA download.
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-
-pip install -r requirements.txt
-cp .env.example .env    # then fill in SECRET_KEY, DB_*, GOOGLE_CLIENT_ID, CELERY_*
+# 1. Database and Redis
+docker compose up -d
 ```
 
-Create the database, then apply migrations (they enable the `vector` extension):
-
 ```bash
-createdb pulchowk
+# 2. Backend API, at http://localhost:8000
+cd backend
+python3.12 -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+# No GPU? Install the CPU build of PyTorch first to skip a multi-gigabyte download:
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements.txt
+cp .env.example .env                 # then set GOOGLE_CLIENT_ID
 python manage.py migrate
-python manage.py createsuperuser
 python manage.py runserver
 ```
 
-In a second terminal, start the worker that runs ingestion and indexing:
-
 ```bash
-cd backend && source .venv/bin/activate
+# 3. Background worker (ingestion and search indexing)
+cd backend
+source .venv/bin/activate
 celery -A config worker -l info
 ```
 
-With Redis on its default port, set `CELERY_BROKER_URL=redis://localhost:6379/0` and `CELERY_RESULT_BACKEND=redis://localhost:6379/0` in `backend/.env`.
-The embedding model downloads from Hugging Face on first use.
-
-### Frontend
-
 ```bash
+# 4. Frontend, at http://localhost:5173
 cd frontend
 npm ci
-cp .env.example .env    # set VITE_GOOGLE_CLIENT_ID and VITE_API_BASE_URL
+cp .env.example .env                 # then set VITE_GOOGLE_CLIENT_ID
 npm run dev
 ```
 
-The app runs at http://localhost:5173 and proxies `/api` and `/media` to the backend at `http://localhost:8000`.
+Open http://localhost:5173 and sign in with a `@pcampus.edu.np` Google account.
+The first sign-in asks you to complete a profile.
+
+The defaults in `backend/.env.example` match `docker-compose.yml`, so only the Google client ID has to be filled in.
+The embedding model (about 130 MB) downloads from Hugging Face the first time search or ingestion runs.
+
+### First administrator
+
+Depositing and reviewing reports needs an administrator.
+Sign in once through the app so your account exists, then promote it:
+
+```bash
+cd backend && source .venv/bin/activate
+python manage.py shell -c "from accounts.models import User; User.objects.filter(email='you@pcampus.edu.np').update(role='admin', is_staff=True, is_superuser=True)"
+```
+
+After that, other users can request faculty or administrator access from the app, and you approve them under Role requests.
+
+### The catalogue starts empty
+
+A fresh database has no projects.
+Either deposit reports through **Deposit report** as an administrator, or import a bundle exported from another instance:
+
+```bash
+python manage.py import_bundle --bundle <dir> --dry-run   # preview
+python manage.py import_bundle --bundle <dir>
+python manage.py backfill_embeddings                      # make them searchable by meaning
+```
+
+### Google sign-in
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create an **OAuth client ID** of type **Web application**.
+2. Under **Authorized JavaScript origins**, add `http://localhost:5173`.
+3. Put the client ID in both `backend/.env` (`GOOGLE_CLIENT_ID`) and `frontend/.env` (`VITE_GOOGLE_CLIENT_ID`).
+
+Only accounts in `ALLOWED_LOGIN_DOMAINS` (default `pcampus.edu.np`) can sign in.
+
+### Without Docker
+
+Install PostgreSQL 16 with `pgvector` (for example `sudo apt install postgresql-16-pgvector`) and Redis yourself, create a `pulchowk` database, and point the `DB_*` and `CELERY_*` variables in `backend/.env` at them.
+Migrations enable the `vector` extension, so the database user needs permission to create extensions (or enable it once as a superuser with `CREATE EXTENSION vector;`).
+
+### Stopping
+
+`docker compose down` stops the services and keeps the data; `docker compose down -v` also deletes the database.
 
 ## Configuration
 
@@ -118,7 +155,7 @@ Backend variables live in `backend/.env`; [`backend/.env.example`](backend/.env.
 ## Tests and checks
 
 ```bash
-# Backend (needs PostgreSQL with pgvector; Django creates a throwaway test database)
+# Backend (with `docker compose up -d` running; Django creates and deletes its own test database)
 cd backend && python manage.py test
 
 # Frontend
