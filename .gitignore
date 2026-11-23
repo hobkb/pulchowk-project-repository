@@ -160,3 +160,4 @@ backend/assign_supervisor.py
 # content, but regenerated output rather than source. Commit a specific run
 # deliberately if you want it as evidence in the report.
 eval_reports/
+.kilocode/
