@@ -68,4 +68,8 @@ zstandard==0.25.0
 celery
 redis
 rapidfuzz
+# Embedding model for semantic search and similarity (repository/embedding).
+# Pulls PyTorch; on a CPU-only machine install the CPU wheel first to skip
+# the CUDA download: pip install torch --index-url https://download.pytorch.org/whl/cpu
+sentence-transformers==6.3.0
 
