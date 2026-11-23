@@ -17,11 +17,9 @@ from datetime import timedelta
 
 load_dotenv()
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
@@ -31,17 +29,29 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 
 DEBUG = os.getenv("DEBUG") == "True"
 
-ALLOWED_HOSTS = []
-
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv("ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+]
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:5173",
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
 ]
-CORS_ALLOW_CREDENTIALS = True
 
+CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
 # Application definition
 
 INSTALLED_APPS = [
@@ -55,11 +65,16 @@ INSTALLED_APPS = [
     "django_filters",
     "drf_spectacular",
     "corsheaders",
+    # HnswIndex is a postgres-specific Index subclass, so Django requires the
+    # contrib app that owns that machinery to be installed.
+    "django.contrib.postgres",
     "pgvector",
     "accounts",
     "core",
     "repository",
+    "organization",
     "ingestion",
+    "notifications",
     'rest_framework_simplejwt',
 ]
 
@@ -73,6 +88,8 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+X_FRAME_OPTIONS = 'SAMEORIGIN'
 
 ROOT_URLCONF = 'config.urls'
 
@@ -93,7 +110,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-
+# Sign-in is restricted to campus accounts. Extra domains can be allowed
+# per-environment for local testing; production leaves this unset.
+ALLOWED_LOGIN_DOMAINS = tuple(
+    d.strip().lower()
+    for d in os.getenv("ALLOWED_LOGIN_DOMAINS", "pcampus.edu.np").split(",")
+    if d.strip()
+)
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
@@ -109,7 +132,7 @@ DATABASES = {
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=1),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
 
     "ROTATE_REFRESH_TOKENS": True,
@@ -166,7 +189,12 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 
 USE_TZ = True
-
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+]
+# Allow cookie-based auth from the React dev server(s)
+CORS_ALLOW_CREDENTIALS = True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
@@ -176,5 +204,207 @@ STATIC_URL = 'static/'
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# Celery Configuration Options
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND")
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = os.getenv("TIMEZONE", "UTC")
+
+# Ingestion Settings
+INGESTION_MAX_UPLOAD_MB = 100
 
 
+
+
+
+# ---------------------------------------------------------------------------
+# Semantic search
+# ---------------------------------------------------------------------------
+# Every knob the embedding and retrieval layer reads lives here, so that a
+# model change, a re-tuned fusion constant or a new threshold is a settings
+# edit rather than a search through the codebase.
+#
+# MODEL_VERSION is what a stored embedding is stamped with, and what search
+# filters on. Changing it makes every existing embedding stale by definition,
+# which is how a model migration is meant to work: backfill writes the new
+# vectors alongside the old ones, and only then does ACTIVE point at them.
+#
+# DIMENSION must match the column declared in the migration. Moving between
+# models of the same width is a settings change; changing the width itself is
+# a schema migration.
+EMBEDDING = {
+    "MODEL_NAME": os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-small-en-v1.5"),
+    "MODEL_VERSION": os.getenv("EMBEDDING_MODEL_VERSION", "bge-small-en-v1.5"),
+    "DIMENSION": 384,
+    # bge models are trained with an asymmetric convention: a passage is
+    # encoded bare, a query is encoded behind this instruction. Using the
+    # wrong one on either side measurably degrades retrieval, so the prefix
+    # is configuration rather than something a caller remembers to pass.
+    "QUERY_PREFIX": "Represent this sentence for searching relevant passages: ",
+    "MAX_SEQ_LENGTH": 512,
+    "BATCH_SIZE": int(os.getenv("EMBEDDING_BATCH_SIZE", "16")),
+    "NORMALIZE": True,
+    # Load the model at process start instead of on the first query.
+    #
+    # Without it the first search after a restart waits about ten seconds
+    # while bge-small is read from disk. With it, that cost moves to startup
+    # and no user ever sees it.
+    #
+    # Off by default, because the cost is per process and this codebase runs
+    # in several: a management command, a test run and each web worker would
+    # each hold their own copy. bge-small is roughly 130 MB resident, so the
+    # sensible deployment is to enable it on the web workers and the Celery
+    # worker through the environment, and leave commands and tests to load
+    # lazily.
+    "PREWARM": os.getenv("EMBEDDING_PREWARM", "").lower() in ("1", "true", "yes"),
+}
+
+# Retrieval and fusion. Kept separate from EMBEDDING because these are tuned
+# against the corpus, not against the model.
+SEARCH = {
+    # Reciprocal Rank Fusion constant. 60 is the value from the original
+    # Cormack et al. formulation and the usual default; the evaluation
+    # harness can sweep it.
+    "RRF_K": int(os.getenv("SEARCH_RRF_K", "60")),
+    # How many candidates each branch contributes before fusion.
+    "LEXICAL_POOL": int(os.getenv("SEARCH_LEXICAL_POOL", "50")),
+    "SEMANTIC_POOL": int(os.getenv("SEARCH_SEMANTIC_POOL", "50")),
+    # Branch weights in the fusion, selected by the sweep in
+    # `manage.py search_eval --only ranking` rather than by intuition.
+    #
+    # Known-item retrieval over the 95-project corpus, Precision@1:
+    #
+    #                       title   keywords   title_subset
+    #   lexical only        0.968      1.000          0.926
+    #   semantic only       0.990      0.975          0.926
+    #   hybrid 1:1          0.990      1.000          0.947
+    #   hybrid 1:2 semantic 1.000      1.000          0.958   <- selected
+    #   hybrid 1:3 semantic 1.000      1.000          0.947
+    #
+    # 1:2 is best or tied-best on all three query strategies, and the
+    # partial-title strategy, which is the closest to how somebody actually
+    # half-remembers a project, is where hybrid beats either branch alone.
+    # The margins are around one query in ninety-five, so this is worth
+    # re-running once the corpus is larger.
+    "LEXICAL_WEIGHT": float(os.getenv("SEARCH_LEXICAL_WEIGHT", "1.0")),
+    "SEMANTIC_WEIGHT": float(os.getenv("SEARCH_SEMANTIC_WEIGHT", "2.0")),
+    # Floor on the semantic branch.
+    #
+    # A nearest-neighbour search has no notion of "no match": ask it for
+    # fifty and it returns fifty, however unrelated. Over a 95-project corpus
+    # that meant half the repository entered the candidate set for every
+    # query and appeared in the results.
+    #
+    # The cut-off is measured, not chosen. Encoding a one-line description of
+    # each project as a query and scoring it against every project gives:
+    #
+    #   against its own project   p5 0.689   p50 0.830   p95 0.932
+    #   against other projects    p50 0.568  p95 0.685   p99 0.746
+    #
+    # 0.70 sits just above the 95th percentile of unrelated pairs, so it
+    # discards the bulk of the noise while keeping all but the weakest
+    # genuine matches. It is a candidacy filter, not a relevance threshold:
+    # the lexical branch is unaffected, so a project matching the words still
+    # appears regardless of its vector score.
+    "SEMANTIC_MIN_SCORE": float(os.getenv("SEARCH_SEMANTIC_MIN_SCORE", "0.70")),
+}
+
+# Cosine similarity interpretation.
+#
+# These are calibration parameters measured against this corpus, not
+# properties of the embedding model. They were chosen from the distributions
+# reported by `manage.py search_eval` over 95 projects and must be revisited
+# as the repository grows -- `SimilarityCalibration` records the corpus the
+# percentile mapping was measured on so that staleness is visible.
+#
+# Why bands and percentiles rather than the raw number: every project here is
+# an undergraduate engineering report from one department in a similar house
+# style, so cosine has a high floor. Random pairs of unrelated projects score
+# a median of 0.64 and reach 0.82 at the 99th percentile. A raw 0.79 therefore
+# sounds high and means very little. The band is what a reader should act on;
+# the percentile says how unusual the score is for this corpus.
+
+# One ladder, shared by project-to-project comparison and by a proposal that
+# supplies an abstract, because both compare a full description against a full
+# description. Read as (minimum cosine, key, label); the final entry is the
+# floor and its threshold is None.
+_DOCUMENT_BANDS = [
+    (0.95, "very_high_overlap", "Very high overlap"),
+    (0.86, "high_similarity", "High similarity"),
+    (0.78, "related_work", "Related work exists"),
+    (None, "distinct", "Appears distinct"),
+]
+
+# The concept check adds one rung below the project-to-project ladder, for the
+# standout matches between 0.70 and 0.78. Without it a row shown under a
+# "possibly related" heading would carry the label "Appears distinct".
+_CONCEPT_BANDS = [
+    (0.95, "very_high_overlap", "Very high overlap"),
+    (0.86, "high_similarity", "High similarity"),
+    (0.78, "related_work", "Related work exists"),
+    (0.70, "possibly_related", "Possibly related"),
+    (None, "distinct", "Appears distinct"),
+]
+
+# A bare title is roughly a tenth the length of a document and sits in a
+# different, noisier region of the space: a title that genuinely matches its
+# own project scored a median of 0.87, while unrelated project pairs already
+# reach 0.82. The bands are therefore more conservative, and the middle one
+# says so rather than pretending to a verdict.
+_TITLE_ONLY_BANDS = [
+    (0.87, "potentially_similar", "Potentially similar"),
+    (0.82, "uncertain", "Uncertain — review"),
+    (None, "likely_distinct", "Likely distinct"),
+]
+
+SIMILARITY = {
+    # Retrieval stays on raw cosine against the HNSW index; this is the
+    # cut-off applied to those raw scores. At 0.78 roughly two thirds of
+    # projects have at least one neighbour and the rest honestly have none.
+    "SIMILAR_PROJECTS_MIN": float(os.getenv("SIMILAR_PROJECTS_MIN", "0.78")),
+    "SIMILAR_PROJECTS_LIMIT": int(os.getenv("SIMILAR_PROJECTS_LIMIT", "5")),
+    "SIMILAR_PROJECTS_BANDS": _DOCUMENT_BANDS,
+    "CHECK_BANDS_CONCEPT": _CONCEPT_BANDS,
+    "CHECK_BANDS_TITLE_ABSTRACT": _DOCUMENT_BANDS,
+    "CHECK_BANDS_TITLE_ONLY": _TITLE_ONLY_BANDS,
+    "CHECK_RESULT_LIMIT": int(os.getenv("CHECK_RESULT_LIMIT", "10")),
+    # Concept-query thresholds, kept apart from the project-to-project one:
+    # a one-line idea is a much weaker signal than a full title and abstract.
+    #
+    # Lowering the cut-off alone does not work. A concept describing work that
+    # is in the repository scored 0.7402 against it; one describing work that
+    # is plainly absent scored 0.7738 against its nearest project. The absent
+    # one scored higher, so no absolute threshold in that range separates
+    # them. What does is whether the best match stands clear of the field:
+    # 0.1186 above the runner-up in the first case, 0.0427 in the second.
+    #
+    # Below CONCEPT_STRONG_MIN exactly one project is offered, and only when
+    # it clears CONCEPT_POSSIBLE_MIN and leads the next candidate by
+    # CONCEPT_POSSIBLE_MARGIN. The margin was measured over 90 known-item
+    # concept queries. "False alarm" re-runs each query with its own project
+    # held out, so any row returned is unwanted -- an upper bound, since a
+    # held-out query can still have genuinely related work:
+    #
+    #   margin   recall   false alarm   added over a flat 0.78
+    #    off     72.2%       12.2%      --
+    #    0.12    74.4%       13.3%      +2 true / +1 false
+    #    0.10    74.4%       14.4%      +2 true / +2 false
+    #    0.08    77.8%       15.6%      +5 true / +3 false
+    #    0.05    83.3%       22.2%      +10 true / +9 false
+    #    0.03    86.7%       30.0%      +13 true / +16 false
+    #
+    # 0.08 adds rows that are right roughly five in eight. At 0.03 the added
+    # rows are wrong more often than right, so the band stops before there.
+    "CONCEPT_STRONG_MIN": float(os.getenv("CONCEPT_STRONG_MIN", "0.78")),
+    "CONCEPT_STRONG_LIMIT": int(os.getenv("CONCEPT_STRONG_LIMIT", "5")),
+    "CONCEPT_POSSIBLE_MIN": float(os.getenv("CONCEPT_POSSIBLE_MIN", "0.70")),
+    "CONCEPT_POSSIBLE_MARGIN": float(os.getenv("CONCEPT_POSSIBLE_MARGIN", "0.08")),
+    "TITLE_ONLY_NOTICE": "Add an abstract for a more reliable comparison.",
+    # Percentiles stored by the calibration run. Finer at the top end, which
+    # is where every threshold sits.
+    "CALIBRATION_PERCENTILES": [
+        1, 5, 10, 25, 50, 75, 90, 95, 97, 98, 99, 99.5, 99.9,
+    ],
+}

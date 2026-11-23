@@ -1,3 +1,895 @@
-from django.shortcuts import render
+from django.db import transaction
+from django.utils.text import slugify
+from rest_framework.views import APIView
+from rest_framework import permissions, status
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
-# Create your views here.
+from accounts.models import Faculty, Person, Student
+from ingestion.models import IngestionJob, IngestionJobLog
+from ingestion.serializers import (
+    IngestionJobCreateSerializer,
+    IngestionJobReadSerializer,
+    IngestionJobUpdatePayloadSerializer,
+    IngestionJobLogSerializer,
+)
+from ingestion.tasks import run_ingestion_pipeline
+from organization.departments import canonical_department
+from organization.models import Campus, Department, ResearchGroup
+from repository.models import (
+    Domain,
+    Keyword,
+    Project,
+    ProjectAsset,
+    ProjectDomain,
+    ProjectKeyword,
+    ProjectPerson,
+    ProjectReference,
+    ProjectSection,
+)
+import itertools
+import mimetypes, re
+from ingestion.pipeline.utils.text_cleaners import (
+    clean_roll_number,
+    normalize_canonical_section,
+    normalize_person_name,
+    split_person_title,
+)
+
+from core.responses import success_response
+from ingestion.pipeline.utils.heading_locator import locate_heading_page
+from notifications.services import NotificationService
+from repository.indexing import defer_indexing, queue_project_indexing
+
+
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+def is_admin_or_dept_admin(user):
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_staff or user.is_superuser or getattr(user, "role", None) == "admin":
+        return True
+    person = getattr(user, "person", None)
+    if person is not None:
+        from organization.models import DepartmentAdmin
+        return DepartmentAdmin.objects.filter(faculty=person, is_active=True).exists()
+    return False
+
+
+def get_job_for_user(job_id, user):
+    try:
+        if is_admin_or_dept_admin(user) or IngestionJob.objects.filter(id=job_id, uploaded_by=user).exists():
+            return IngestionJob.objects.get(id=job_id)
+
+        raise NotFound("Job not found.")
+    
+    except IngestionJob.DoesNotExist:
+        raise NotFound("Job not found.")
+
+
+class JobListCreateAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def post(self, request):
+        if not is_admin_or_dept_admin(request.user):
+            raise ValidationError({"detail": "Only admins or departmental admins can upload projects."})
+        serializer = IngestionJobCreateSerializer(data=request.data)
+    
+        if not serializer.is_valid():
+            raise ValidationError(serializer.errors)
+    
+        uploaded_file = serializer.validated_data["file"]
+    
+        job = IngestionJob.objects.create(
+            file=uploaded_file,
+            original_filename=uploaded_file.name,
+            uploaded_by=request.user,
+            status=IngestionJob.Status.PENDING,
+        )
+    
+        IngestionJobLog.objects.create(
+            job=job,
+            level="INFO",
+            message=(
+                f"Job created by {request.user.email}. "
+                f"File: {uploaded_file.name}"
+            ),
+        )
+    
+        run_ingestion_pipeline.delay(str(job.id))
+    
+        return success_response(
+            data=IngestionJobReadSerializer(job).data,
+            message="Job created successfully.",
+            status=status.HTTP_201_CREATED,
+        )
+    
+    def get(self, request):
+        queryset = (
+            IngestionJob.objects.all()
+            if is_admin_or_dept_admin(request.user)
+            else IngestionJob.objects.filter(uploaded_by=request.user)
+        )
+    
+        job_status = request.query_params.get("status")
+        if job_status:
+            queryset = queryset.filter(status=job_status)
+    
+        # classroom_id = request.query_params.get("classroom_id")
+        # if classroom_id:
+        #     queryset = queryset.filter(classroom_id=classroom_id)
+    
+        paginator = StandardResultsSetPagination()
+    
+        page = paginator.paginate_queryset(
+            queryset,
+            request,
+        )
+    
+        if page is not None:
+            serializer = IngestionJobReadSerializer(
+                page,
+                many=True,
+            )
+    
+            return paginator.get_paginated_response(serializer.data)
+    
+        serializer = IngestionJobReadSerializer(
+            queryset,
+            many=True,
+        )
+    
+        return success_response(
+            data=serializer.data,
+            message="Jobs retrieved successfully.",
+        )
+
+
+class JobDetailAPIView(APIView):
+    """
+    Unified endpoint replacing JobReviewAPIView and JobReviewStatusAPIView.
+    Retrieves job details, review completeness status, and updates metadata draft.
+    """
+    permission_classes = [permissions.IsAuthenticated,
+                         # permissions.IsAdminUser,  # Restrict to admins only
+                          ]
+    parser_classes = [JSONParser]
+
+    def get(self, request, job_id):
+        job = get_job_for_user(job_id, request.user)
+        payload = job.extracted_payload or {}
+    
+        # Compute review completeness status directly for the UI
+        available_sections = [
+            "project_fields",
+            "people_and_roles",
+            "keywords",
+            "project_sections",
+            "references",
+            "appendices",
+            "document_metadata",
+            "processing_warnings",
+        ]
+    
+        review_state = {
+            section: ("pending" if payload.get(section) in (None, [], {}, "") else "available")
+            for section in available_sections
+        }
+    
+        serializer = IngestionJobReadSerializer(job)
+        data = serializer.data
+        data["review_state"] = review_state
+
+        # Jobs extracted before departments were canonicalised carry the
+        # cover page's raw wording. Map it here, on read, so the review form
+        # can preselect it -- without rewriting the stored payload, which
+        # stays exactly as the pipeline produced it.
+        fields = (data.get("extracted_payload") or {}).get("project_fields")
+        if isinstance(fields, dict) and fields.get("department_name"):
+            canonical = canonical_department(fields["department_name"])
+            fields["department_name"] = canonical or ""
+
+        return success_response(
+            data=data,
+            message="Job retrieved successfully.",
+        )
+    
+    def patch(self, request, job_id):
+        job = get_job_for_user(job_id, request.user)
+    
+        if job.status not in (
+            IngestionJob.Status.EXTRACTED,
+            IngestionJob.Status.SECTIONS_PENDING,
+        ):
+            raise ValidationError(
+                {
+                    "detail": (
+                        "Cannot edit payload unless job status is "
+                        f"EXTRACTED or SECTIONS_PENDING. Current status: {job.status}"
+                    )
+                }
+            )
+    
+        serializer = IngestionJobUpdatePayloadSerializer(
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+    
+        payload = job.extracted_payload or {}
+    
+        if "project_fields" in serializer.validated_data:
+            payload.setdefault("project_fields", {})
+            payload["project_fields"].update(
+                serializer.validated_data["project_fields"]
+            )
+    
+        if "project_sections" in serializer.validated_data:
+           project_sections = serializer.validated_data["project_sections"]
+
+           for section in project_sections:
+                if "content" in section:
+                    section["word_count"] = len(
+                        re.findall(r"\w+", section["content"])
+                    )
+
+           payload["project_sections"] = project_sections
+
+        for field_name in [
+            "people_and_roles",
+            "keywords",
+            "references",
+            "appendices",
+            "document_metadata",
+            "processing_warnings",
+        ]:
+            if field_name in serializer.validated_data:
+                payload[field_name] = serializer.validated_data[field_name]
+    
+        # Persist raw extra flags directly (not part of strict serializer)
+        if "_sections_skipped" in request.data:
+            payload["_sections_skipped"] = bool(request.data["_sections_skipped"])
+        if "_verified_by_admin" in request.data:
+            payload["_verified_by_admin"] = bool(request.data["_verified_by_admin"])
+
+        job.extracted_payload = payload
+        job.save(
+            update_fields=[
+                "extracted_payload",
+                "updated_at",
+            ]
+        )
+    
+        IngestionJobLog.objects.create(
+            job=job,
+            level="INFO",
+            message=(
+                f"Draft metadata updated by "
+                f"{request.user.email}."
+            ),
+        )
+    
+        return success_response(
+            data=IngestionJobReadSerializer(job).data,
+            message="Metadata updated successfully.",
+        )
+
+
+class JobLogsAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated,
+                         # permissions.IsAdminUser,  # Restrict to admins only
+                          ]
+
+    def get(self, request, job_id):
+        job = get_job_for_user(job_id, request.user)
+    
+        logs = job.logs.all().order_by("created_at")
+    
+        serializer = IngestionJobLogSerializer(
+            logs,
+            many=True,
+        )
+    
+        return success_response(
+            data=serializer.data,
+            message="Job logs retrieved successfully.",
+        )
+
+
+class LocateHeadingPageAPIView(APIView):
+    """
+    Given a heading typed by hand during review, finds which real page of
+    the source PDF it starts on -- so a reviewer adding "System Design" as
+    a new section doesn't have to hunt for the page number themselves.
+
+    Read-only: PDF text extraction happens fresh against the stored file
+    and nothing about the job is written. The response is a page number
+    (or null) and nothing else -- the matched line of the document is
+    never returned, so this can never leak content through a lookup meant
+    to save a reviewer's time.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, job_id):
+        job = get_job_for_user(job_id, request.user)
+        heading = str(request.data.get("heading") or "").strip()
+        if not heading:
+            raise ValidationError({"heading": "A heading is required."})
+        if not job.file:
+            raise ValidationError({"detail": "This job has no source PDF on record."})
+
+        page = locate_heading_page(job, heading)
+        return success_response(
+            data={"page": page},
+            message="Page located." if page else "No confident match found.",
+        )
+
+
+class JobPublishAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated,
+                         # permissions.IsAdminUser,  # Restrict to admins only
+                          ]
+    STUDENT_ROLES = {"author", "student"}
+    
+    FACULTY_ROLES = {
+                    "faculty",
+                    "supervisor",
+                    "co-supervisor",
+                    "co supervisor",
+                }
+    
+    @staticmethod
+    def _iter_sections(sections):
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            yield section
+            yield from JobPublishAPIView._iter_sections(section.get("children") or [])
+
+    @classmethod
+    def _create_sections(cls, project, sections, _counter=None, _depth=1):
+        """Flatten the nested section tree into ProjectSection rows.
+
+        `display_order` is a document-wide pre-order sequence, not the
+        per-parent index the tree carries. The tree numbers each node within
+        its own parent, so nodes at different depths collide on
+        Meta.ordering = ["display_order"] and published sections came back
+        interleaved, destroying document order and any hierarchy rebuilt from
+        it. Pre-order plus heading_level is enough for the repository
+        serializer to rebuild the tree (see build_section_tree).
+
+        `heading_level` is derived from nesting depth when the payload omits
+        it, so a child cannot be recorded as its parent's sibling.
+        """
+        if _counter is None:
+            _counter = itertools.count(1)
+
+        for index, section_data in enumerate(sections, start=1):
+            if not isinstance(section_data, dict):
+                continue
+            heading = section_data.get("heading", f"Section {index}")
+            canonical_section = section_data.get("canonical_section")
+            heading_level = section_data.get("heading_level")
+            if not isinstance(heading_level, int) or heading_level < 1:
+                heading_level = _depth
+            ProjectSection.objects.create(
+                project=project,
+                # A heading is not a person's name -- normalize_person_name
+                # strips the dots out of a numbering prefix ("1.1 Background"
+                # -> "11 Background"). ProjectSection.save() already applies
+                # normalize_section_title, which is the correct normalizer
+                # and preserves the numbering.
+                heading=(heading or "").strip(),
+                canonical_section=normalize_canonical_section(canonical_section),
+                heading_level=heading_level,
+                display_order=next(_counter),
+                content=section_data.get("content", ""),
+                page_start=section_data.get("page_start"),
+                page_end=section_data.get("page_end"),
+                word_count=section_data.get("word_count", 0),
+            )
+            cls._create_sections(
+                project,
+                section_data.get("children") or [],
+                _counter=_counter,
+                _depth=heading_level + 1,
+            )
+            
+    def _validate_publish_payload(self, payload):
+        project_fields = payload.get("project_fields", {})
+        title = (project_fields.get("title") or "").strip()
+        abstract = (project_fields.get("abstract") or "").strip()
+        people = payload.get("people_and_roles") or []
+        keywords = [value for value in (payload.get("keywords") or []) if str(value).strip()]
+        sections = payload.get("project_sections") or []
+    
+        errors = {}
+        if not title:
+            errors.setdefault("project_fields.title", []).append("Title is required.")
+
+        authors = [person for person in people if str(person.get("role") or "").lower() == "author"]
+        if not authors:
+            errors.setdefault("people_and_roles", []).append("At least one author is required.")
+    
+        seen_author_names = set()
+        duplicate_authors = []
+        for person in authors:
+            name = str(person.get("full_name") or "").strip().lower()
+            if not name:
+                continue
+            if name in seen_author_names:
+                duplicate_authors.append(str(person.get("full_name") or "").strip())
+            seen_author_names.add(name)
+        if duplicate_authors:
+            errors.setdefault("people_and_roles", []).append(
+                "Duplicate authors are not allowed: " + ", ".join(sorted(set(duplicate_authors)))
+            )
+    
+        department_name = (project_fields.get("department_name") or "").strip()
+        if not department_name:
+            errors.setdefault("project_fields.department_name", []).append(
+                "Department could not be resolved from the extracted metadata."
+            )
+    
+        if sections:
+            for index, section in enumerate(self._iter_sections(sections)):
+                heading_level = section.get("heading_level") or 1
+                if not isinstance(heading_level, int) or heading_level < 1 or heading_level > 6:
+                    errors.setdefault("project_sections", []).append(
+                        f"Section {index + 1} has an invalid heading level."
+                    )
+                    break
+
+        if errors:
+            raise ValidationError(errors)
+    
+    @staticmethod
+    def get_or_create_student(
+        *,
+        full_name,
+        department,
+        roll_number,
+        academic_level,
+    ):
+        roll_number = clean_roll_number(roll_number) if roll_number else ""
+        academic_level = academic_level or "UG"
+
+        email = None
+        if roll_number:
+            email_roll = roll_number
+            if email_roll.upper().startswith("PUL"):
+                email_roll = email_roll[3:]
+
+            first_name = full_name.split()[0].lower()
+            email = f"{email_roll.lower()}.{first_name}@pcampus.edu.np"
+
+        if roll_number:
+            student, _ = Student.objects.update_or_create(
+                roll_number=roll_number,
+                defaults={
+                    "full_name": full_name,
+                    "department": department,
+                    "academic_level": academic_level,
+                    "email": email,
+                },
+            )
+            return student
+
+        student, _ = Student.objects.update_or_create(
+            full_name=full_name,
+            academic_level=academic_level,
+            defaults={
+                "department": department,
+                "email": email,
+            },
+        )
+
+        return student
+
+    @staticmethod
+    def _normalize_full_name(full_name):
+        return normalize_person_name(full_name)
+
+    @classmethod
+    def _parse_faculty_full_name(cls, full_name):
+        # Shared with MetadataPeopleStep's supervisor extraction so a title
+        # prefix (including compounds like "Asst. Prof.") is recognized the
+        # same way whether it's still attached at extraction time or only
+        # gets split off here at publish time.
+        return split_person_title(full_name)
+
+    @staticmethod
+    def get_or_create_faculty(
+        *,
+        full_name,
+        department,
+        designation,
+        title="",
+    ):
+
+        # Matched on the name alone, then the department is filled in if it
+        # was missing. Keying update_or_create on (full_name, department)
+        # created a SECOND row for the same person whenever the stored
+        # record had no department yet -- which is how a supervisor ended up
+        # in the catalogue twice, one copy carrying the corrected title and
+        # the other not.
+        faculty = Faculty.objects.filter(full_name__iexact=full_name).first()
+
+        if faculty is None:
+            return Faculty.objects.create(
+                full_name=full_name,
+                department=department,
+                designation=designation,
+                title=title,
+            )
+
+        # Only ever add information. Publishing a report that happens not to
+        # name a supervisor's honorific must not wipe one an administrator
+        # entered by hand, so an empty incoming value leaves the stored one
+        # alone.
+        updates = {}
+        if designation and designation != faculty.designation:
+            updates["designation"] = designation
+        if title and title != faculty.title:
+            updates["title"] = title
+        if department is not None and faculty.department_id is None:
+            updates["department"] = department
+
+        if updates:
+            for field, value in updates.items():
+                setattr(faculty, field, value)
+            faculty.save(update_fields=list(updates))
+
+        return faculty
+
+    @staticmethod
+    def get_or_create_person(
+        *,
+        full_name,
+        department,
+    ):
+        person, _ = Person.objects.update_or_create(
+            full_name=full_name,
+            defaults={
+                "department": department,
+            },
+        )
+
+        return person
+    
+    def post(self, request, job_id):
+        job = get_job_for_user(job_id, request.user)
+    
+        if job.published_project is not None and job.status != IngestionJob.Status.SECTIONS_PENDING:
+            raise ValidationError(
+                {
+                    "detail": (
+                        "This job has already been published."
+                    )
+                }
+            )
+        if job.status not in (
+            IngestionJob.Status.EXTRACTED,
+            IngestionJob.Status.SECTIONS_PENDING,
+        ):
+            raise ValidationError(
+                {
+                    "detail": (
+                        "Job can only be published when status is "
+                        f"EXTRACTED or SECTIONS_PENDING. Current status: {job.status}"
+                    )
+                }
+            )
+
+        # ── Case B: SECTIONS_PENDING → update sections on existing project ──
+        if job.status == IngestionJob.Status.SECTIONS_PENDING:
+            payload = job.extracted_payload or {}
+            project = job.published_project
+            if project is None:
+                raise ValidationError({"detail": "No published project found for this job."})
+
+            with defer_indexing(), transaction.atomic():
+                # Replace all existing sections
+                project.sections.all().delete()
+                self._create_sections(project, payload.get("project_sections", []))
+
+                job.status = IngestionJob.Status.VERIFIED
+                job.save(update_fields=["status", "updated_at"])
+
+                IngestionJobLog.objects.create(
+                    job=job,
+                    level="INFO",
+                    message=(
+                        f"Sections updated on Project ({project.id}) by "
+                        f"{request.user.email}. Status set to VERIFIED."
+                    ),
+                )
+
+                NotificationService.notify_job_published(job, project)
+
+            queue_project_indexing(project.pk)
+
+            return success_response(
+                data={"project_id": str(project.id)},
+                message="Project sections updated and status set to Verified.",
+                status=status.HTTP_200_OK,
+            )
+    
+        payload = job.extracted_payload or {}
+        self._validate_publish_payload(payload)
+    
+        project_fields = payload.get("project_fields", {})
+        title = (project_fields.get("title") or job.original_filename or "Untitled Project").strip()
+        abstract = (project_fields.get("abstract") or "").strip()
+    
+        project_type = (
+            project_fields.get("project_type")
+            if project_fields.get("project_type")
+            in [choice[0] for choice in Project.PROJECT_TYPES]
+            else "Major"
+        )
+    
+        academic_level = (
+            project_fields.get("academic_level")
+            if project_fields.get("academic_level")
+            in [choice[0] for choice in Project.ACADEMIC_LEVELS]
+            else "UG"
+        )
+    
+        batch = project_fields.get("batch")
+        github_url = project_fields.get("repository_url") or project_fields.get("github_url")
+        department_name = (project_fields.get("department_name") or "").strip()
+        campus_name = (project_fields.get("campus_name") or "Unknown Campus").strip()
+        research_group_name = (project_fields.get("research_group_name") or "").strip()
+    
+        with defer_indexing(), transaction.atomic():
+            campus = Campus.objects.filter(name__iexact=campus_name).first()
+
+            # Resolve the department against the canonical six. The stored
+            # name may be an exact canonical name (chosen by the reviewer in
+            # the form) or free text read off a cover page ("DOECE",
+            # "Dept. of Electronics & Computer Engg."), so an exact lookup
+            # is tried first and canonical matching second. No blind
+            # fallback to "the first department in the table": that silently
+            # filed projects under whichever row happened to be first.
+            department = None
+            if department_name:
+                department = Department.objects.filter(
+                    name__iexact=department_name
+                ).first()
+
+                if department is None:
+                    canonical = canonical_department(department_name)
+                    if canonical:
+                        department = Department.objects.filter(
+                            name__iexact=canonical
+                        ).first()
+
+            research_group = None
+            if research_group_name and department is not None:
+                research_group = ResearchGroup.objects.filter(
+                    department=department,
+                    name=research_group_name,
+                ).first()
+    
+            # The cluster is a fixed vocabulary; anything outside it is
+            # dropped rather than written, so a hand-edited payload cannot
+            # introduce an arbitrary value.
+            valid_clusters = {choice[0] for choice in Project.CLUSTERS}
+            cluster = (project_fields.get("cluster") or "").strip().upper() or None
+            if cluster not in valid_clusters:
+                cluster = None
+
+            project = Project.objects.create(
+                title=title,
+                abstract=abstract,
+                description=project_fields.get("description") or "",
+                project_type=project_type,
+                academic_level=academic_level,
+                batch=batch,
+                cluster=cluster,
+                language=project_fields.get("language") or "English",
+                github_url=github_url,
+                doi_url=project_fields.get("doi_url") or "",
+                publication_url=project_fields.get("publication_url") or "",
+                demo_url=project_fields.get("demo_url") or "",
+                department=department,
+                research_group=research_group,
+                status="Published",
+                created_by=request.user,
+                extraction_verified_by=request.user,
+            )
+
+            self._create_sections(project, payload.get("project_sections", []))
+               
+            people = payload.get("people_and_roles") or []
+
+            # A supervisor recorded only under project_fields.supervisors
+            # (some extracted payloads carry it there and not in
+            # people_and_roles) would otherwise never become a
+            # ProjectPerson, and the project would publish with no
+            # supervisor despite one having been found.
+            supervisor_entries = project_fields.get("supervisors") or []
+            known = {
+                str(p.get("full_name") or "").strip().lower()
+                for p in people
+                if str(p.get("role") or "").lower() in self.FACULTY_ROLES
+            }
+            for entry in supervisor_entries:
+                if isinstance(entry, str):
+                    entry = {"full_name": entry}
+                if not isinstance(entry, dict):
+                    continue
+                name = str(entry.get("full_name") or "").strip()
+                if not name or name.lower() in known:
+                    continue
+                known.add(name.lower())
+                people.append({
+                    "full_name": name,
+                    "title": entry.get("title") or "",
+                    "designation": entry.get("designation") or "",
+                    "role": entry.get("role") or "Supervisor",
+                    "academic_level": "Faculty",
+                    "display_order": len(people) + 1,
+                })
+        
+            for person_data in people:
+                raw_full_name = (person_data.get("full_name") or "").strip()
+                role = (person_data.get("role") or "Author").strip()
+                role_lower = role.lower()
+                designation = (person_data.get("designation") or "").strip()
+                academic_level = (person_data.get("academic_level") or "UG").strip()
+                roll_number = clean_roll_number(
+                    (person_data.get("roll_number") or "").strip()
+                )
+
+                if role_lower in self.FACULTY_ROLES:
+                    full_name, parsed_title = self._parse_faculty_full_name(raw_full_name)
+                    # A title typed into the review form is what the reviewer
+                    # decided; it wins over whatever could be parsed out of
+                    # the name. Only fall back to the parsed prefix when the
+                    # form left the field empty -- previously the typed value
+                    # was discarded entirely, so entering "Dr." never stuck.
+                    submitted_title = (person_data.get("title") or "").strip()
+                    title = submitted_title or parsed_title
+                else:
+                    full_name = self._normalize_full_name(raw_full_name)
+                    title = ""
+
+                if not full_name:
+                    continue
+
+                if role_lower in self.STUDENT_ROLES:
+                    person = self.get_or_create_student(
+                        full_name=full_name,
+                        department=department,
+                        roll_number=roll_number,
+                        academic_level=academic_level,
+                    )
+
+                elif role_lower in self.FACULTY_ROLES:
+                    person = self.get_or_create_faculty(
+                        full_name=full_name,
+                        department=department,
+                        designation=designation,
+                        title=title,
+                    )
+
+                else:
+                    person = self.get_or_create_person(
+                        full_name=full_name,
+                        department=department,
+                    )
+
+                ProjectPerson.objects.update_or_create(
+                    project=project,
+                    person=person,
+                    role=role,
+                    defaults={
+                        "display_order": person_data.get("display_order", 1),
+                    },
+                )
+            keywords = [value for value in (payload.get("keywords") or []) if str(value).strip()]
+            if keywords:
+                for keyword_name in keywords:
+                    keyword_name = str(keyword_name).strip()
+                    if not keyword_name:
+                        continue
+
+                    keyword, _ = Keyword.objects.get_or_create(name=keyword_name)
+                    ProjectKeyword.objects.get_or_create(
+                        project=project,
+                        keyword=keyword,
+                    )
+                    
+            domains = []
+            for domain_name in payload.get("domains") or []:
+                if str(domain_name).strip():
+                    domains.append(str(domain_name).strip())
+            if not domains and isinstance(project_fields.get("domains"), str):
+                domains = [project_fields.get("domains")]
+    
+            for domain_name in domains:
+                domain, _ = Domain.objects.get_or_create(name=domain_name)
+                ProjectDomain.objects.get_or_create(project=project, domain=domain)
+    
+            references = payload.get("references") or []
+            for reference in references:
+                if not isinstance(reference, dict):
+                    continue
+                title = str(reference.get("title") or reference.get("name") or "").strip()
+                citation = str(reference.get("citation") or reference.get("content") or "").strip()
+                url = str(reference.get("url") or "").strip()
+                if not title and not citation and not url:
+                    continue
+                ProjectReference.objects.create(
+                    project=project,
+                    title=title,
+                    citation=citation,
+                    url=url,
+                )
+    
+            appendices = payload.get("appendices") or []
+           
+            if job.file:
+                mime_type, _ = mimetypes.guess_type(job.file.name)
+                ProjectAsset.objects.create(
+                    project=project,
+                    asset_type="Report",
+                    file=job.file.name,
+                    mime_type=mime_type or "application/pdf",
+                    file_size=job.file.size,
+                )
+    
+            # ── Case A: set final status based on whether sections were skipped ──
+            sections_skipped = bool(payload.get("_sections_skipped"))
+            new_status = (
+                IngestionJob.Status.SECTIONS_PENDING
+                if sections_skipped
+                else IngestionJob.Status.VERIFIED
+            )
+
+            job.published_project = project
+            job.status = new_status
+            job.save(
+                update_fields=[
+                    "published_project",
+                    "status",
+                    "updated_at",
+                ]
+            )
+
+            IngestionJobLog.objects.create(
+                job=job,
+                level="INFO",
+                message=(
+                    f"Job published to repository.Project "
+                    f"({project.id}) by user "
+                    f"{request.user.email}. "
+                    f"Status set to {new_status}."
+                ),
+            )
+
+            NotificationService.notify_job_published(job, project)
+
+        # Queued once here rather than per save: publishing writes the
+        # project, its people, sections, keywords, domains and references, and
+        # each save would otherwise queue its own embedding task for the same
+        # project. The lexical vector is already written by the save signal
+        # inside the transaction above.
+        queue_project_indexing(project.pk)
+
+        return success_response(
+            data={
+                "project_id": str(project.id),
+            },
+            message="Project published successfully.",
+            status=status.HTTP_200_OK,
+        )

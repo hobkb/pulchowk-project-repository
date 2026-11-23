@@ -13,12 +13,27 @@ export default function GoogleLoginButton({ onError }) {
           await loginWithGoogle(res.credential);
           navigate("/dashboard");
         } catch (err) {
-          onError(err.message || "Sign-in failed. Please try again.");
+          if (onError) {
+            onError(err);
+          } else {
+            console.error("Login error:", err);
+          }
         }
       }}
-      onError={() => onError("Google sign-in failed. Please try again.")}
-      theme="filled_black"
-      shape="pill"
+      onError={() => {
+        if (onError) {
+          onError(new Error("Google OAuth initialization failed"));
+        } else {
+          console.error("Google Login failed");
+        }
+      }}
+      // Square and outlined, to match a system that has no pills in it
+      // and sets its own controls as ink on paper.
+      theme="outline"
+      shape="rectangular"
+      text="signin_with"
+      logo_alignment="left"
+      width="320"
     />
   );
 }
